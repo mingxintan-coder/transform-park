@@ -1,0 +1,917 @@
+<!doctype html>
+<!--
+  变身乐园 版本记录
+  v1.2.0 (2026-10-11) 新增演示模式（不用摄像头）、版本号；蹲下后站起不再误判为跳
+  v1.1.0 (2026-10-11) 新增企鹅魔法师、真脸模式
+  v1.0.0 (2026-10-11) 首个版本：6 个角色、动作识别、泡泡、语音
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>变身乐园</title>
+<style>
+:root{--ink:#2b2d42;--muted:#6b7280;--accent:#ff5d73;--sun:#ffd23f}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;overflow:hidden;background:#7cc8ff;font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;color:var(--ink)}
+#stage{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+#video{position:fixed;left:-9999px;top:0;width:320px;height:180px}
+#start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 25% 15%,#fff1b8,#ffc2d1 45%,#a8dcff);z-index:10;padding:16px;overflow:auto}
+.card{background:#ffffffee;border-radius:28px;padding:24px 28px;max-width:900px;width:100%;box-shadow:0 20px 60px #0003;text-align:center;max-height:100%;overflow:auto}
+h1{font-size:clamp(30px,5.5vw,58px);margin:0 0 4px;color:var(--accent);letter-spacing:2px}
+h2{font-size:22px;margin:18px 0 8px}
+.sub{color:var(--muted);margin:0 0 16px;font-size:18px}
+.row{display:flex;gap:18px;align-items:center;justify-content:center;flex-wrap:wrap}
+.camBox{width:260px;aspect-ratio:16/9;border-radius:18px;background:#e8eef5;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;font-size:48px}
+.camBox video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);position:absolute;inset:0}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center;min-width:240px}
+button{font-family:inherit;cursor:pointer;border:none}
+.big{font-size:22px;padding:12px 24px;border-radius:16px;background:#4dabf7;color:#fff;box-shadow:0 4px 0 #1c7ed6}
+.big:active{transform:translateY(2px);box-shadow:0 2px 0 #1c7ed6}
+select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
+#status{margin:0;color:var(--muted);font-size:16px;line-height:1.6}
+.chars{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+.chars button{background:#f4f6fb;border-radius:20px;padding:8px 6px 10px;border:4px solid transparent;font-size:18px;font-weight:bold;color:var(--ink);display:flex;flex-direction:column;align-items:center}
+.chars button.on{border-color:var(--accent);background:#fff0f3}
+.chars canvas{width:100px;height:116px}
+.go{margin-top:18px;font-size:30px;padding:14px 48px;border-radius:22px;background:var(--accent);color:#fff;box-shadow:0 6px 0 #d63a52;font-weight:bold}
+.go:disabled{background:#c9ced6;box-shadow:0 6px 0 #a7adb7;cursor:not-allowed}
+.tips{color:var(--muted);font-size:14px;margin:16px 0 0;line-height:1.7}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5;transition:opacity .5s}
+#hud.idle{opacity:0}
+#hints{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:#ffffffd9;border-radius:999px;padding:8px 20px;font-size:clamp(14px,1.6vw,22px);white-space:nowrap;box-shadow:0 4px 16px #0002}
+#bar{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;background:#ffffffe6;border-radius:24px;padding:8px 12px;pointer-events:auto;box-shadow:0 6px 20px #0003;max-width:calc(100vw - 24px);overflow-x:auto}
+#barChars{display:flex;gap:6px}
+#barChars button{background:#f4f6fb;border-radius:14px;padding:2px;border:3px solid transparent}
+#barChars canvas{width:52px;height:60px;display:block}
+.tools{display:flex;gap:6px}
+.tools button{font-size:16px;padding:10px 12px;border-radius:12px;background:#f4f6fb;color:var(--ink);white-space:nowrap}
+.tools button.off{opacity:.45}
+.demo{margin:12px 0 0;font-size:18px;padding:10px 26px;border-radius:16px;background:#f4f6fb;color:var(--ink);box-shadow:0 4px 0 #d7dce6}
+.ver{color:#9aa1ad;font-size:13px;margin:8px 0 0}
+#barVer{color:#9aa1ad;font-size:12px;white-space:nowrap;padding:0 4px}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="video" playsinline muted></video>
+
+<div id="hud" hidden>
+  <div id="hints">🙌 双手举高 2 秒＝变身　🦘 跳一跳　👏 拍拍手　👋 挥挥手　✈️ 张开双臂　🍄 蹲下　🫧 碰泡泡</div>
+  <div id="bar">
+    <div id="barChars"></div>
+    <div class="tools">
+      <button data-act="bg">🏞️ 背景</button>
+      <button data-act="face">🙂 真脸</button>
+      <button data-act="bubbles">🫧 泡泡</button>
+      <button data-act="sound">🔊 声音</button>
+      <button data-act="cam">📷 换摄像头</button>
+      <button data-act="full">⛶ 全屏</button>
+      <button data-act="demo">🎬 演示</button>
+      <button data-act="home">⚙️ 设置</button>
+    </div>
+    <span id="barVer"></span>
+  </div>
+</div>
+
+<div id="start">
+  <div class="card">
+    <h1>动起来！变身乐园</h1>
+    <p class="sub">站在摄像头前，你就会变成可爱的小伙伴 ✨</p>
+    <div class="row">
+      <div class="camBox"><span>📷</span><video id="pv" playsinline muted></video></div>
+      <div class="col">
+        <button id="btnCam" class="big">① 打开摄像头</button>
+        <select id="camSel" hidden></select>
+        <p id="status">⏳ 正在加载动作识别…</p>
+      </div>
+    </div>
+    <h2>② 选一个角色</h2>
+    <div class="chars" id="chars"></div>
+    <button id="btnGo" class="go" disabled>③ 开始玩！</button><br>
+    <button id="btnDemo" class="demo">🎬 演示模式（不用摄像头，先看看效果）</button>
+    <p class="tips">家长遥控键：数字 1–7 换角色 · 空格 下一个角色 · V 真脸/卡通脸 · D 演示模式 · B 背景 · G 泡泡 · M 声音 · C 换摄像头 · P 小窗 · F 全屏 · S 回到设置<br>
+    建议：孩子站在电视前 2–3 米，让摄像头能拍到全身；光线亮一点识别更准。</p>
+    <p class="ver" id="ver"></p>
+  </div>
+</div>
+
+<script type="module">
+const VERSION = 'v1.2.0', VERSION_DATE = '2026-10-11';
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+
+const CHARS = [
+  {id:'penguin', name:'企鹅魔法师', body:'#1f2a44', belly:'#ffffff', limb:'#1f2a44', hand:'#1f2a44', dark:'#0f1626', feet:'#ff9f1c', say:'冰雪魔法，变！', flare:1.15, wand:'#a5e8ff',
+   fx:{cheer:['❄️','✨','💎'], jump:['❄️','💎','🧊'], clap:['❄️','✨','💎'], trail:'❄️'}},
+  {id:'dino',  name:'小恐龙', body:'#5cc06b', belly:'#d8f5a2', limb:'#4aa85a', hand:'#4aa85a', dark:'#2f6b3a', say:'嗷呜！', flare:1.5},
+  {id:'robot', name:'机器人', body:'#9fb4c7', belly:null,      limb:'#7d91a5', hand:'#5f6f80', dark:'#3c4a5a', say:'哔哔，启动！', flare:1.3},
+  {id:'bunny', name:'小兔子', body:'#ffd1dc', belly:'#ffffff', limb:'#ffbfd0', hand:'#ffffff', dark:'#c2577a', say:'蹦蹦跳跳！', flare:1.5},
+  {id:'cat',   name:'太空猫', body:'#ffa94d', belly:'#fff3e0', limb:'#f08c2e', hand:'#ffffff', dark:'#8a4b12', say:'喵，出发去太空！', flare:1.5},
+  {id:'fairy', name:'小仙子', body:'#c9a7ff', belly:null,      limb:'#ffe0c7', hand:'#ffe0c7', dark:'#6b3fa0', say:'魔法变变变！', flare:2.3, face:'#ffe0c7', hair:'#7b4a2a'},
+  {id:'bear',  name:'小熊',   body:'#b07a4f', belly:'#e8c9a6', limb:'#95643d', hand:'#95643d', dark:'#4a2f1a', say:'抱抱！', flare:1.6},
+];
+
+const $ = s => document.querySelector(s);
+const canvas = $('#stage'), ctx = canvas.getContext('2d');
+const video = $('#video'), pv = $('#pv');
+let W = 0, H = 0, dpr = 1, sceneCanvas = null;
+
+let landmarker = null, modelErr = false, camErr = '';
+let stream = null, cams = [], camIdx = 0;
+let running = false, bgMode = 'cartoon', bubblesOn = true, soundOn = true, showPreview = true, faceMode = false, demo = false;
+let defaultChar = 0;
+let tracks = [], particles = [], texts = [], bubbles = [], popCount = 0, lastBubble = 0;
+let lastVideoTime = -1, lastT = performance.now();
+
+/* ---------------- model ---------------- */
+(async () => {
+  try {
+    const { PoseLandmarker, FilesetResolver } = await import(MP + '/vision_bundle.mjs');
+    const vision = await FilesetResolver.forVisionTasks(MP + '/wasm');
+    const make = delegate => PoseLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL, delegate },
+      runningMode: 'VIDEO', numPoses: 3,
+      minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5
+    });
+    try { landmarker = await make('GPU'); } catch (e) { landmarker = await make('CPU'); }
+  } catch (e) { console.error(e); modelErr = true; }
+  refresh();
+})();
+
+/* ---------------- camera ---------------- */
+async function openCamera(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const v = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  if (deviceId) v.deviceId = { exact: deviceId };
+  stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+  video.srcObject = stream; pv.srcObject = stream;
+  await video.play().catch(() => {}); pv.play().catch(() => {});
+  cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const cur = stream.getVideoTracks()[0].getSettings().deviceId;
+  camIdx = Math.max(0, cams.findIndex(d => d.deviceId === cur));
+  const sel = $('#camSel');
+  sel.innerHTML = cams.map((d, i) => `<option value="${i}">${d.label || '摄像头 ' + (i + 1)}</option>`).join('');
+  sel.value = camIdx; sel.hidden = cams.length < 2;
+  lastVideoTime = -1;
+}
+async function initCamera() {
+  camErr = '';
+  try {
+    await openCamera();
+    // 优先使用外接摄像头
+    const ext = cams.find(d => d.label && !/integrated|built-?in|facetime|内置|集成/i.test(d.label));
+    if (cams.length > 1 && ext && ext.deviceId !== cams[camIdx].deviceId) await openCamera(ext.deviceId);
+  } catch (e) {
+    console.error(e);
+    camErr = e.name === 'NotAllowedError' ? '没有摄像头权限：请点地址栏左边的图标，允许使用摄像头'
+           : e.name === 'NotFoundError' ? '没找到摄像头：请插好外接摄像头后再试'
+           : '摄像头打不开：' + e.message;
+  }
+  refresh();
+}
+async function nextCamera() {
+  if (cams.length < 2) return;
+  try { await openCamera(cams[(camIdx + 1) % cams.length].deviceId); toast('📷 ' + (cams[camIdx].label || '摄像头 ' + (camIdx + 1))); } catch (e) {}
+}
+$('#btnCam').onclick = () => { audio(); initCamera(); };
+$('#camSel').onchange = e => openCamera(cams[+e.target.value].deviceId).catch(() => {});
+
+function refresh() {
+  const m = landmarker ? '✅ 动作识别已就绪' : modelErr ? '⚠️ 识别模型加载失败，请检查网络后刷新页面' : '⏳ 正在加载动作识别…';
+  const c = stream ? '✅ 摄像头已打开' : camErr ? '⚠️ ' + camErr : '';
+  $('#status').innerHTML = [m, c].filter(Boolean).join('<br>');
+  $('#btnCam').textContent = stream ? '🔄 重新打开摄像头' : '① 打开摄像头';
+  $('#btnGo').disabled = !(landmarker && stream);
+}
+
+/* ---------------- audio & speech ---------------- */
+let ac = null;
+function audio() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (ac && ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function tone(f, dur, { type = 'sine', vol = 0.18, to = null, delay = 0 } = {}) {
+  if (!soundOn) return; const a = audio(); if (!a) return;
+  const t0 = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t0);
+  if (to) o.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function noise(dur, vol = 0.25, hp = 1500) {
+  if (!soundOn) return; const a = audio(); if (!a) return;
+  const buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+  const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = buf; f.type = 'highpass'; f.frequency.value = hp; g.gain.value = vol;
+  s.connect(f).connect(g).connect(a.destination); s.start();
+}
+const sfx = {
+  boing: () => tone(180, 0.35, { to: 560, type: 'triangle', vol: 0.25 }),
+  pop: () => tone(950, 0.09, { to: 320, vol: 0.2 }),
+  clap: () => noise(0.14, 0.4, 1200),
+  chime: () => [784, 1047].forEach((f, i) => tone(f, 0.3, { delay: i * 0.08, vol: 0.12 })),
+  hello: () => [659, 784, 988].forEach((f, i) => tone(f, 0.25, { delay: i * 0.1, vol: 0.12, type: 'triangle' })),
+  down: () => tone(520, 0.4, { to: 160, type: 'triangle', vol: 0.2 }),
+  whoosh: () => noise(0.7, 0.15, 400),
+  magic: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.35, { delay: i * 0.07, vol: 0.12, type: 'triangle' })),
+};
+let zhVoice = null;
+function pickVoice() { const vs = speechSynthesis.getVoices(); zhVoice = vs.find(v => /zh[-_]CN/i.test(v.lang)) || vs.find(v => /^zh/i.test(v.lang)) || null; }
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(txt) {
+  if (!soundOn || !zhVoice) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(txt); u.voice = zhVoice; u.lang = zhVoice.lang; u.rate = 1.05; u.pitch = 1.35; speechSynthesis.speak(u); } catch (e) {}
+}
+
+/* ---------------- drawing helpers ---------------- */
+const TAU = Math.PI * 2;
+function circ(g, x, y, r) { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); }
+function ell(g, x, y, rx, ry, rot = 0) { g.beginPath(); g.ellipse(x, y, Math.abs(rx), Math.abs(ry), rot, 0, TAU); g.fill(); }
+function rr(g, x, y, w, h, r) { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); }
+function polyline(g, pts, w, c) {
+  pts = pts.filter(Boolean); if (pts.length < 2) return;
+  g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y); g.stroke();
+}
+function star(g, x, y, r, rot = 0) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = rot - Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); }
+  g.closePath(); g.fill();
+}
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+function eyes(g, R, st, { x = 0.36, y = -0.05, r = 0.17 } = {}) {
+  const ex = R * x, ey = R * y, er = R * r;
+  for (const sx of [-1, 1]) {
+    const cx = sx * ex;
+    if (st.blink) {
+      g.strokeStyle = '#222'; g.lineWidth = R * 0.07; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(cx - er, ey); g.quadraticCurveTo(cx, ey + er * 0.6, cx + er, ey); g.stroke();
+    } else if (st.excite > 0.3) {
+      g.strokeStyle = '#222'; g.lineWidth = R * 0.08; g.lineCap = 'round';
+      g.beginPath(); g.arc(cx, ey + er * 0.5, er * 0.85, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    } else {
+      g.fillStyle = '#fff'; circ(g, cx, ey, er);
+      g.fillStyle = '#222'; circ(g, cx + R * 0.02, ey + R * 0.02, er * 0.66);
+      g.fillStyle = '#fff'; circ(g, cx - er * 0.2, ey - er * 0.28, er * 0.24);
+    }
+  }
+}
+function mouth(g, R, st, { y = 0.35, w = 0.3 } = {}) {
+  const my = R * y, mw = R * w;
+  if (st.excite > 0.3) {
+    g.fillStyle = '#7a2230'; ell(g, 0, my, mw * 0.55, mw * 0.5);
+    g.fillStyle = '#ff7b93'; ell(g, 0, my + mw * 0.25, mw * 0.3, mw * 0.18);
+  } else {
+    g.strokeStyle = '#3a2a2a'; g.lineWidth = R * 0.07; g.lineCap = 'round';
+    g.beginPath(); g.arc(0, my - mw * 0.55, mw * 0.65, Math.PI * 0.25, Math.PI * 0.75); g.stroke();
+  }
+}
+function cheeks(g, R, { x = 0.6, y = 0.18 } = {}) {
+  g.fillStyle = 'rgba(255,110,140,0.45)'; ell(g, -R * x, R * y, R * 0.16, R * 0.1); ell(g, R * x, R * y, R * 0.16, R * 0.1);
+}
+function whiskers(g, R, y) {
+  g.strokeStyle = 'rgba(60,40,40,0.7)'; g.lineWidth = R * 0.035;
+  for (const sx of [-1, 1]) for (const k of [-1, 0, 1]) {
+    g.beginPath(); g.moveTo(sx * R * 0.35, R * y + k * R * 0.05); g.lineTo(sx * R * 0.95, R * y + k * R * 0.14); g.stroke();
+  }
+}
+
+function drawHead(g, ch, st, R, t) {
+  g.lineWidth = R * 0.07; g.strokeStyle = ch.dark;
+  const happy = st.excite > 0.3;
+  switch (ch.id) {
+    case 'penguin': {
+      // 高挑的头
+      g.fillStyle = ch.body; ell(g, 0, -R * 0.15, R * 0.82, R * 1.15); g.stroke();
+      g.fillStyle = '#fff'; ell(g, -R * 0.28, R * 0.02, R * 0.4, R * 0.55); ell(g, R * 0.28, R * 0.02, R * 0.4, R * 0.55); ell(g, 0, R * 0.32, R * 0.55, R * 0.45);
+      eyes(g, R, st, { y: -0.02, x: 0.3, r: 0.15 });
+      g.fillStyle = '#ff9f1c'; g.beginPath(); g.moveTo(-R * 0.16, R * 0.2); g.lineTo(R * 0.16, R * 0.2); g.lineTo(0, R * (happy ? 0.48 : 0.42)); g.closePath(); g.fill();
+      if (happy) { g.fillStyle = '#7a2230'; ell(g, 0, R * 0.3, R * 0.08, R * 0.05); }
+      cheeks(g, R, { x: 0.5, y: 0.22 });
+      // 星星毛线帽
+      g.fillStyle = '#4c6ef5'; g.beginPath(); g.ellipse(0, -R * 0.95, R * 0.72, R * 0.6, 0, Math.PI, TAU); g.fill();
+      g.fillStyle = '#748ffc'; rr(g, -R * 0.78, -R * 1.02, R * 1.56, R * 0.26, R * 0.12); g.fill();
+      g.fillStyle = '#ffd23f'; star(g, -R * 0.3, -R * 1.25, R * 0.12, t); star(g, R * 0.25, -R * 1.3, R * 0.1, -t); star(g, 0, -R * 1.45, R * 0.09, t * 1.3);
+      g.fillStyle = '#fff'; circ(g, 0, -R * 1.62, R * 0.18);
+      // 彩虹围巾
+      const sc = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#4dabf7', '#9775fa'];
+      g.save(); rr(g, -R * 0.85, R * 0.88, R * 1.7, R * 0.3, R * 0.15); g.clip();
+      sc.forEach((c, i) => { g.fillStyle = c; g.fillRect(-R * 0.85 + i * R * 1.7 / 6, R * 0.88, R * 1.7 / 6 + 1, R * 0.3); });
+      g.restore();
+      g.save(); g.beginPath(); g.rect(R * 0.25, R * 1.0, R * 0.28, R * 0.7); g.clip();
+      sc.forEach((c, i) => { g.fillStyle = c; g.fillRect(R * 0.25, R * 1.0 + i * R * 0.7 / 6, R * 0.28, R * 0.7 / 6 + 1); });
+      g.restore();
+      break;
+    }
+    case 'dino': {
+      g.fillStyle = '#ffb238';
+      for (let i = -2; i <= 2; i++) {
+        const a = -Math.PI / 2 + i * 0.42, bx = Math.cos(a) * R * 0.85, by = Math.sin(a) * R * 0.85;
+        const tx = Math.cos(a) * R * 1.32, ty = Math.sin(a) * R * 1.32, px = -Math.sin(a) * R * 0.2, py = Math.cos(a) * R * 0.2;
+        g.beginPath(); g.moveTo(bx + px, by + py); g.lineTo(tx, ty); g.lineTo(bx - px, by - py); g.closePath(); g.fill();
+      }
+      g.fillStyle = ch.body; ell(g, 0, 0, R * 1.05, R * 0.95); g.stroke();
+      g.fillStyle = ch.belly; ell(g, 0, R * 0.42, R * 0.62, R * 0.36);
+      g.fillStyle = ch.dark; circ(g, -R * 0.16, R * 0.28, R * 0.05); circ(g, R * 0.16, R * 0.28, R * 0.05);
+      eyes(g, R, st, { y: -0.22 }); mouth(g, R, st, { y: 0.55, w: 0.32 }); cheeks(g, R, { x: 0.68, y: 0.12 });
+      break;
+    }
+    case 'robot': {
+      g.lineWidth = R * 0.08; g.beginPath(); g.moveTo(0, -R * 0.9); g.lineTo(0, -R * 1.35); g.stroke();
+      g.fillStyle = Math.sin(t * 6) > 0 ? '#ff4d6d' : '#ffd23f'; circ(g, 0, -R * 1.42, R * 0.15);
+      g.fillStyle = ch.dark; rr(g, -R * 1.18, -R * 0.25, R * 0.25, R * 0.5, R * 0.08); g.fill(); rr(g, R * 0.93, -R * 0.25, R * 0.25, R * 0.5, R * 0.08); g.fill();
+      g.fillStyle = ch.body; rr(g, -R, -R * 0.9, R * 2, R * 1.75, R * 0.3); g.fill(); g.lineWidth = R * 0.07; g.stroke();
+      g.fillStyle = '#1f2a36'; rr(g, -R * 0.75, -R * 0.55, R * 1.5, R * 1.1, R * 0.22); g.fill();
+      const cy = '#5ef2ff'; g.fillStyle = cy; g.strokeStyle = cy; g.lineCap = 'round';
+      for (const sx of [-1, 1]) {
+        const ex = sx * R * 0.33;
+        if (st.blink) { g.lineWidth = R * 0.07; g.beginPath(); g.moveTo(ex - R * 0.13, -R * 0.15); g.lineTo(ex + R * 0.13, -R * 0.15); g.stroke(); }
+        else if (happy) { g.lineWidth = R * 0.08; g.beginPath(); g.moveTo(ex - R * 0.14, -R * 0.08); g.lineTo(ex, -R * 0.24); g.lineTo(ex + R * 0.14, -R * 0.08); g.stroke(); }
+        else { rr(g, ex - R * 0.13, -R * 0.32, R * 0.26, R * 0.32, R * 0.08); g.fill(); }
+      }
+      if (happy) { rr(g, -R * 0.22, R * 0.12, R * 0.44, R * 0.2, R * 0.08); g.fill(); }
+      else { g.lineWidth = R * 0.06; g.beginPath(); for (let i = 0; i <= 8; i++) { const x = -R * 0.3 + i * R * 0.075; const y = R * 0.25 + (i % 2 ? R * 0.05 : -R * 0.05); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+      break;
+    }
+    case 'bunny': {
+      for (const sx of [-1, 1]) {
+        g.save(); g.translate(sx * R * 0.38, -R * 0.75); g.rotate(sx * 0.18 + Math.sin(t * 3 + sx) * 0.06);
+        g.fillStyle = ch.body; ell(g, 0, -R * 0.6, R * 0.28, R * 0.78); g.stroke();
+        g.fillStyle = '#ff8fab'; ell(g, 0, -R * 0.6, R * 0.13, R * 0.56);
+        g.restore();
+      }
+      g.fillStyle = ch.body; circ(g, 0, 0, R); g.stroke();
+      eyes(g, R, st, { y: -0.1 });
+      g.fillStyle = '#ff6f91'; g.beginPath(); g.moveTo(-R * 0.1, R * 0.14); g.lineTo(R * 0.1, R * 0.14); g.lineTo(0, R * 0.26); g.closePath(); g.fill();
+      if (happy) mouth(g, R, st, { y: 0.48, w: 0.28 });
+      else { g.fillStyle = '#fff'; g.strokeStyle = '#c9a0ad'; g.lineWidth = R * 0.03; rr(g, -R * 0.1, R * 0.3, R * 0.2, R * 0.18, R * 0.04); g.fill(); g.stroke();
+        g.beginPath(); g.moveTo(0, R * 0.3); g.lineTo(0, R * 0.48); g.stroke(); }
+      whiskers(g, R, 0.24); cheeks(g, R, { x: 0.55, y: 0.25 });
+      break;
+    }
+    case 'cat': {
+      for (const sx of [-1, 1]) {
+        g.fillStyle = ch.body; g.beginPath(); g.moveTo(sx * R * 0.2, -R * 0.82); g.lineTo(sx * R * 0.82, -R * 1.18); g.lineTo(sx * R * 0.85, -R * 0.45); g.closePath(); g.fill(); g.stroke();
+        g.fillStyle = '#ffb3c1'; g.beginPath(); g.moveTo(sx * R * 0.35, -R * 0.8); g.lineTo(sx * R * 0.75, -R * 1.02); g.lineTo(sx * R * 0.76, -R * 0.6); g.closePath(); g.fill();
+      }
+      g.fillStyle = ch.body; ell(g, 0, 0, R, R * 0.92); g.stroke();
+      g.strokeStyle = ch.dark; g.lineWidth = R * 0.07; g.lineCap = 'round';
+      for (const k of [-1, 0, 1]) { g.beginPath(); g.moveTo(k * R * 0.22, -R * 0.85); g.lineTo(k * R * 0.18, -R * 0.62); g.stroke(); }
+      g.fillStyle = ch.belly; ell(g, 0, R * 0.38, R * 0.45, R * 0.3);
+      eyes(g, R, st, { y: -0.12 });
+      g.fillStyle = '#ff6f91'; ell(g, 0, R * 0.22, R * 0.09, R * 0.06);
+      mouth(g, R, st, { y: 0.45, w: 0.24 }); whiskers(g, R, 0.3);
+      // 太空头盔
+      g.fillStyle = 'rgba(200,235,255,0.18)'; circ(g, 0, -R * 0.05, R * 1.42);
+      g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = R * 0.08; g.beginPath(); g.arc(0, -R * 0.05, R * 1.42, 0, TAU); g.stroke();
+      g.lineWidth = R * 0.1; g.strokeStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); g.arc(0, -R * 0.05, R * 1.15, Math.PI * 1.15, Math.PI * 1.45); g.stroke();
+      g.strokeStyle = '#dfe6ee'; g.lineWidth = R * 0.22; g.beginPath(); g.arc(0, -R * 0.05, R * 1.42, Math.PI * 0.3, Math.PI * 0.7); g.stroke();
+      break;
+    }
+    case 'fairy': {
+      g.fillStyle = ch.hair; ell(g, 0, R * 0.35, R * 1.15, R * 1.05); circ(g, 0, -R * 0.05, R * 1.08);
+      g.fillStyle = ch.face; circ(g, 0, R * 0.08, R * 0.88);
+      g.fillStyle = ch.hair; g.beginPath(); g.arc(0, -R * 0.05, R * 1.02, Math.PI * 1.02, Math.PI * 1.98); g.quadraticCurveTo(R * 0.4, -R * 0.15, 0, -R * 0.35); g.quadraticCurveTo(-R * 0.4, -R * 0.15, -R * 1.0, -R * 0.1); g.fill();
+      g.fillStyle = '#ffd23f'; star(g, 0, -R * 0.98, R * 0.28, Math.sin(t * 2) * 0.2);
+      g.fillStyle = '#ff8fd1'; circ(g, -R * 0.35, -R * 0.82, R * 0.1); circ(g, R * 0.35, -R * 0.82, R * 0.1);
+      eyes(g, R, st, { y: 0.05, r: 0.16 }); mouth(g, R, st, { y: 0.45, w: 0.26 }); cheeks(g, R, { x: 0.5, y: 0.3 });
+      break;
+    }
+    case 'bear': {
+      for (const sx of [-1, 1]) { g.fillStyle = ch.body; circ(g, sx * R * 0.72, -R * 0.7, R * 0.33); g.stroke(); g.fillStyle = ch.belly; circ(g, sx * R * 0.72, -R * 0.7, R * 0.17); }
+      g.fillStyle = ch.body; circ(g, 0, 0, R); g.stroke();
+      g.fillStyle = ch.belly; ell(g, 0, R * 0.35, R * 0.44, R * 0.33);
+      g.fillStyle = ch.dark; ell(g, 0, R * 0.2, R * 0.15, R * 0.1);
+      eyes(g, R, st, { y: -0.15 }); mouth(g, R, st, { y: 0.48, w: 0.26 }); cheeks(g, R, { x: 0.62, y: 0.15 });
+      break;
+    }
+  }
+}
+
+function drawCharacter(g, P, ch, st, t) {
+  const s = P.s, A = P.ls, B = P.rs;
+  const sc = mid(A, B), sign = Math.sign(B.x - A.x) || 1;
+  let D = P.lh, C = P.rh;
+  if (!(C && D)) { D = { x: A.x + (sc.x - A.x) * 0.2, y: A.y + s * 1.5 }; C = { x: B.x + (sc.x - B.x) * 0.2, y: B.y + s * 1.5 }; }
+  const hc = mid(C, D);
+  if (hc.y - sc.y < s * 0.9) { const k = s * 0.9 - (hc.y - sc.y); C = { x: C.x, y: C.y + k }; D = { x: D.x, y: D.y + k }; hc.y += k; }
+  const tc = mid(sc, hc), torsoH = hc.y - sc.y;
+  const hw = Math.max(Math.abs(C.x - D.x) * ch.flare / 2, s * 0.45 * ch.flare / 1.5);
+  const A2 = { x: sc.x + (A.x - sc.x) * 1.05, y: A.y }, B2 = { x: sc.x + (B.x - sc.x) * 1.05, y: B.y };
+  const D2 = { x: hc.x - sign * hw, y: D.y }, C2 = { x: hc.x + sign * hw, y: C.y };
+
+  // 身后的东西：翅膀、尾巴
+  if (ch.id === 'fairy') {
+    const flap = 1 + (st.flying ? 0.3 : 0.08) * Math.sin(t * (st.flying ? 14 : 4));
+    for (const sx of [-1, 1]) {
+      g.save(); g.translate(sc.x + sx * s * 0.15, sc.y + s * 0.25); g.scale(sx * flap, 1);
+      g.fillStyle = 'rgba(190,230,255,0.75)'; g.strokeStyle = '#fff'; g.lineWidth = s * 0.04;
+      ell(g, s * 0.75, -s * 0.35, s * 0.7, s * 0.42, -0.5); g.stroke();
+      ell(g, s * 0.55, s * 0.35, s * 0.45, s * 0.3, 0.5); g.stroke();
+      g.restore();
+    }
+  }
+  if (ch.id === 'dino') {
+    const tx = hc.x + s * 1.1, ty = hc.y + s * 0.45 + Math.sin(t * 4) * s * 0.12;
+    g.fillStyle = ch.body; g.beginPath(); g.moveTo(hc.x - s * 0.2, hc.y - s * 0.35);
+    g.quadraticCurveTo(hc.x + s * 0.7, hc.y + s * 0.05, tx, ty);
+    g.quadraticCurveTo(hc.x + s * 0.4, hc.y + s * 0.45, hc.x - s * 0.1, hc.y + s * 0.2); g.fill();
+  }
+  if (ch.id === 'cat') {
+    g.strokeStyle = ch.body; g.lineWidth = s * 0.16; g.lineCap = 'round'; g.beginPath(); g.moveTo(hc.x, hc.y);
+    g.bezierCurveTo(hc.x + s * 0.8, hc.y + s * 0.2, hc.x + s * 0.9, hc.y - s * 0.6, hc.x + s * 0.7 + Math.sin(t * 3) * s * 0.15, hc.y - s * 0.8); g.stroke();
+  }
+
+  // 腿
+  const legW = s * 0.36, legC = ch.id === 'fairy' ? ch.limb : ch.limb;
+  for (const [h, k, a] of [[P.lh, P.lk, P.la], [P.rh, P.rk, P.ra]]) {
+    if (!h || !k) continue;
+    polyline(g, [h, k, a], legW, legC);
+    const f = a || k;
+    g.fillStyle = ch.feet || (ch.id === 'bunny' ? '#ffffff' : ch.dark);
+    ell(g, f.x, f.y + s * 0.1, s * (ch.id === 'bunny' ? 0.36 : 0.28), s * 0.17);
+  }
+
+  // 身体
+  g.fillStyle = ch.body; g.strokeStyle = ch.body; g.lineWidth = s * 0.35; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(A2.x, A2.y); g.lineTo(B2.x, B2.y); g.lineTo(C2.x, C2.y); g.lineTo(D2.x, D2.y); g.closePath(); g.fill(); g.stroke();
+  if (ch.belly) { g.fillStyle = ch.belly; ell(g, tc.x, tc.y + torsoH * 0.08, s * 0.36, torsoH * 0.38); }
+  if (ch.id === 'robot') {
+    g.fillStyle = '#e8eef5'; rr(g, tc.x - s * 0.35, tc.y - torsoH * 0.2, s * 0.7, torsoH * 0.45, s * 0.1); g.fill();
+    ['#ff4d6d', '#ffd23f', '#38d9a9'].forEach((c, i) => { g.fillStyle = c; circ(g, tc.x - s * 0.2 + i * s * 0.2, tc.y, s * 0.08); });
+  }
+  if (ch.id === 'fairy') {
+    g.fillStyle = '#fff6'; for (let i = 0; i < 5; i++) star(g, hc.x + (i - 2) * hw * 0.38, hc.y - torsoH * 0.05, s * 0.09);
+  }
+
+  // 手臂
+  for (const [sh, el, wr] of [[A, P.lel, P.lw], [B, P.rel, P.rw]]) {
+    if (!el && !wr) continue;
+    polyline(g, [sh, el, wr], s * 0.3, ch.limb);
+    const hp = wr || el; g.fillStyle = ch.hand; circ(g, hp.x, hp.y, s * 0.19);
+  }
+
+  // 头
+  const Hd = { x: P.nose.x, y: P.nose.y - s * 0.1 }, R = s * 0.62;
+  let ang = 0;
+  if (P.le && P.re) { const e1 = P.le.x < P.re.x ? P.le : P.re, e2 = e1 === P.le ? P.re : P.le; ang = Math.max(-0.6, Math.min(0.6, Math.atan2(e2.y - e1.y, e2.x - e1.x))); }
+  g.save(); g.translate(Hd.x, Hd.y); g.rotate(ang); drawHead(g, ch, st, R, t); g.restore();
+
+  // 真脸模式：把摄像头里孩子的脸放到角色头上
+  if (faceMode && g === ctx && video.videoWidth) {
+    const fc = { x: P.nose.x, y: P.nose.y - s * 0.08 }, fr = s * (ch.id === 'penguin' ? 0.4 : 0.46);
+    g.save(); g.beginPath(); g.arc(fc.x, fc.y, fr, 0, TAU); g.clip(); drawVideoCover(g); g.restore();
+    g.strokeStyle = '#fff'; g.lineWidth = s * 0.07; g.beginPath(); g.arc(fc.x, fc.y, fr, 0, TAU); g.stroke();
+    g.strokeStyle = ch.dark; g.lineWidth = s * 0.025; g.beginPath(); g.arc(fc.x, fc.y, fr + s * 0.045, 0, TAU); g.stroke();
+  }
+
+  // 魔法棒（小仙子、企鹅魔法师）
+  if ((ch.id === 'fairy' || ch.wand) && P.rw && P.rel) {
+    const dx = P.rw.x - P.rel.x, dy = P.rw.y - P.rel.y, L = Math.hypot(dx, dy) || 1;
+    const tip = { x: P.rw.x + dx / L * s * 0.9, y: P.rw.y + dy / L * s * 0.9 };
+    polyline(g, [P.rw, tip], s * 0.08, ch.wand ? '#dbe4ff' : '#b5835a');
+    g.fillStyle = ch.wand || '#ffd23f'; star(g, tip.x, tip.y, s * 0.3, t * 2);
+    if (g === ctx && Math.random() < 0.15) particles.push(mkP(tip.x, tip.y, ch.wand ? '❄️' : '✨', s * 0.3, 60, 0));
+  }
+
+  // 变身进度圈
+  if (st.hold > 0) {
+    g.lineCap = 'round'; g.lineWidth = s * 0.14;
+    g.strokeStyle = 'rgba(255,255,255,0.6)'; g.beginPath(); g.arc(Hd.x, Hd.y, R * 1.7, 0, TAU); g.stroke();
+    g.strokeStyle = '#ffd23f'; g.beginPath(); g.arc(Hd.x, Hd.y, R * 1.7, -Math.PI / 2, -Math.PI / 2 + TAU * st.hold); g.stroke();
+  }
+  // 变身烟雾
+  if (st.morph > 0) {
+    g.fillStyle = `rgba(255,255,255,${0.9 * st.morph})`;
+    for (let i = 0; i < 9; i++) { const a = i / 9 * TAU + t; const r = s * (1.0 + (1 - st.morph) * 1.2); circ(g, tc.x + Math.cos(a) * r, tc.y - s * 0.3 + Math.sin(a) * r, s * 0.5 * st.morph + s * 0.1); }
+  }
+}
+
+/* ---------------- character icons ---------------- */
+function fakeP(w, h) {
+  const s = w * 0.26, cx = w / 2, ny = h * 0.45, sy = ny + s * 0.85;
+  return {
+    s, nose: { x: cx, y: ny }, le: { x: cx - s * 0.25, y: ny - s * 0.15 }, re: { x: cx + s * 0.25, y: ny - s * 0.15 },
+    ls: { x: cx - s / 2, y: sy }, rs: { x: cx + s / 2, y: sy },
+    lel: { x: cx - s * 0.78, y: sy + s * 0.45 }, rel: { x: cx + s * 0.78, y: sy + s * 0.45 },
+    lw: { x: cx - s * 0.85, y: sy + s * 0.9 }, rw: { x: cx + s * 0.85, y: sy + s * 0.9 },
+    lh: { x: cx - s * 0.28, y: sy + s * 1.3 }, rh: { x: cx + s * 0.28, y: sy + s * 1.3 },
+    lk: null, rk: null, la: null, ra: null,
+  };
+}
+const ICON_ST = { blink: false, excite: 0, hold: 0, morph: 0, flying: false };
+function iconCanvas(i, w = 120, h = 140) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.save(); g.beginPath(); g.rect(0, 0, w, h); g.clip();
+  drawCharacter(g, fakeP(w, h), CHARS[i], ICON_ST, 0); g.restore();
+  return c;
+}
+function buildPickers() {
+  const box = $('#chars'); box.innerHTML = '';
+  CHARS.forEach((ch, i) => {
+    const b = document.createElement('button'); b.appendChild(iconCanvas(i));
+    b.appendChild(Object.assign(document.createElement('span'), { textContent: ch.name }));
+    b.onclick = () => { defaultChar = i; markPickers(); tone(660, 0.15, { vol: 0.1 }); };
+    box.appendChild(b);
+  });
+  const bar = $('#barChars'); bar.innerHTML = '';
+  CHARS.forEach((ch, i) => {
+    const b = document.createElement('button'); b.title = ch.name; b.appendChild(iconCanvas(i));
+    b.onclick = () => setAll(i); bar.appendChild(b);
+  });
+  markPickers();
+}
+function markPickers() { [...$('#chars').children].forEach((b, i) => b.classList.toggle('on', i === defaultChar)); }
+
+/* ---------------- scene ---------------- */
+function rand(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function buildScene() {
+  sceneCanvas = document.createElement('canvas'); sceneCanvas.width = W * dpr; sceneCanvas.height = H * dpr;
+  const g = sceneCanvas.getContext('2d'); g.scale(dpr, dpr);
+  const sky = g.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#6ec1ff'); sky.addColorStop(0.65, '#c9ecff'); sky.addColorStop(1, '#eafaff');
+  g.fillStyle = sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#a6de86'; ell(g, W * 0.15, H * 1.0, W * 0.45, H * 0.3); ell(g, W * 0.85, H * 1.02, W * 0.5, H * 0.33);
+  g.fillStyle = '#7cc96a'; ell(g, W * 0.5, H * 1.1, W * 0.75, H * 0.28);
+  const r = rand(7), cols = ['#ff6b8b', '#ffd23f', '#ffffff', '#b88cff'];
+  for (let i = 0; i < 46; i++) {
+    const x = r() * W, y = H * 0.88 + r() * H * 0.12, sz = 5 + r() * 6;
+    g.fillStyle = cols[i % 4]; for (let k = 0; k < 5; k++) { const a = k / 5 * TAU; circ(g, x + Math.cos(a) * sz, y + Math.sin(a) * sz, sz * 0.7); }
+    g.fillStyle = '#ffb238'; circ(g, x, y, sz * 0.55);
+  }
+}
+function cloud(g, x, y, s) { g.fillStyle = 'rgba(255,255,255,0.92)'; circ(g, x, y, s); circ(g, x + s * 0.9, y + s * 0.2, s * 0.8); circ(g, x - s * 0.9, y + s * 0.25, s * 0.7); circ(g, x + s * 0.3, y - s * 0.45, s * 0.75); }
+function drawScene(t) {
+  ctx.drawImage(sceneCanvas, 0, 0, W, H);
+  const sx = W * 0.88, sy = H * 0.14, sr = Math.min(W, H) * 0.07;
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * 0.3); ctx.fillStyle = '#ffe066';
+  for (let i = 0; i < 12; i++) { ctx.rotate(TAU / 12); ctx.beginPath(); ctx.moveTo(sr * 1.15, -sr * 0.12); ctx.lineTo(sr * 1.6, 0); ctx.lineTo(sr * 1.15, sr * 0.12); ctx.fill(); }
+  ctx.restore(); ctx.fillStyle = '#ffd23f'; circ(ctx, sx, sy, sr);
+  const cs = Math.min(W, H) * 0.05;
+  [[0.1, 0.12, 1], [0.45, 0.08, 0.8], [0.7, 0.25, 1.1], [0.25, 0.3, 0.7]].forEach(([fx, fy, k], i) => {
+    const x = ((fx * W + t * (12 + i * 6)) % (W + cs * 6)) - cs * 3; cloud(ctx, x, fy * H, cs * k);
+  });
+}
+function drawVideoCover(g) {
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return;
+  const k = Math.max(W / vw, H / vh), dw = vw * k, dh = vh * k;
+  g.save(); g.translate(W, 0); g.scale(-1, 1); g.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh); g.restore();
+}
+function drawPreview() {
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return;
+  const w = Math.min(W * 0.2, 320), h = w * vh / vw, x = W - w - 16, y = 16;
+  ctx.save(); rr(ctx, x, y, w, h, 14); ctx.clip(); ctx.translate(x + w, y); ctx.scale(-1, 1); ctx.drawImage(video, 0, 0, w, h); ctx.restore();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; rr(ctx, x, y, w, h, 14); ctx.stroke();
+}
+
+/* ---------------- tracking ---------------- */
+const IDX = { nose: 0, le: 2, re: 5, ls: 11, rs: 12, lel: 13, rel: 14, lw: 15, rw: 16, lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28 };
+function mapPt(p) {
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const k = Math.max(W / vw, H / vh), dw = vw * k, dh = vh * k;
+  return { x: (W - dw) / 2 + (1 - p.x) * dw, y: (H - dh) / 2 + p.y * dh };
+}
+function pix(tr) {
+  const L = tr.L, P = {};
+  for (const k in IDX) { const p = L[IDX[k]]; P[k] = (p.visibility ?? 1) > 0.5 ? mapPt(p) : null; }
+  if (!P.ls || !P.rs) return null;
+  const sc = mid(P.ls, P.rs);
+  let s = Math.hypot(P.ls.x - P.rs.x, P.ls.y - P.rs.y);
+  if (P.lh && P.rh) s = Math.max(s, Math.hypot(sc.x - mid(P.lh, P.rh).x, sc.y - mid(P.lh, P.rh).y) * 0.6);
+  s = Math.max(24, s);
+  tr.s = tr.s ? tr.s + (s - tr.s) * 0.3 : s; P.s = tr.s;
+  if (!P.nose) P.nose = { x: sc.x, y: sc.y - P.s * 0.9 };
+  P.feet = (P.la && P.ra) ? mid(P.la, P.ra) : (P.lh && P.rh) ? { x: mid(P.lh, P.rh).x, y: mid(P.lh, P.rh).y + P.s * 1.2 } : { x: sc.x, y: sc.y + P.s * 2.2 };
+  return P;
+}
+function newTrack() {
+  const used = new Set(tracks.map(t => t.char));
+  let c = defaultChar; for (let i = 0; i < CHARS.length && used.has(c); i++) c = (defaultChar + i + 1) % CHARS.length;
+  return { char: c, L: null, c: null, last: 0, cool: {}, jumps: 0, lastJump: 0, wTurns: [], lastWave: 0, excite: 0, morph: 0, hold: 0 };
+}
+function updateTracks(poses, now) {
+  const used = new Set();
+  for (const lm of poses) {
+    const c = mid(lm[11], lm[12]);
+    let best = null, bd = 0.25;
+    for (const tr of tracks) { if (used.has(tr) || !tr.c) continue; const d = Math.hypot(tr.c.x - c.x, tr.c.y - c.y); if (d < bd) { bd = d; best = tr; } }
+    if (!best) { best = newTrack(); tracks.push(best); }
+    used.add(best); best.c = c; best.last = now;
+    if (!best.L) best.L = lm.map(p => ({ x: p.x, y: p.y, visibility: p.visibility }));
+    else lm.forEach((p, i) => { const q = best.L[i]; q.x += (p.x - q.x) * 0.6; q.y += (p.y - q.y) * 0.6; q.visibility = p.visibility; });
+    detect(best, now);
+  }
+  tracks = tracks.filter(tr => now - tr.last < 1500);
+}
+
+/* ---------------- demo mode: two virtual kids ---------------- */
+const DEMO_SEQ = [['idle', 2.5], ['wave', 3], ['clap', 3], ['jump', 3.5], ['fly', 3], ['squat', 2.5], ['up', 3]];
+const DEMO_LEN = DEMO_SEQ.reduce((a, b) => a + b[1], 0);
+const DEMO_KIDS = [{ cx: 430, k: 0.62, phase: 0 }, { cx: 870, k: 0.52, phase: DEMO_LEN / 2 }];
+// 偏移量以"脚底"为原点，y 向上为负；坐标是 1280×720 的虚拟画面，l = 孩子自己的左边
+function demoKeys(act, lt, cx, k) {
+  let by = 0, legBy = 0;
+  const sway = Math.sin(lt * 2) * 6;
+  let lel = [95, -300], lw = [100, -220], rel = [-95, -300], rw = [-100, -220];
+  let lk = [50, -105], rk = [-50, -105];
+  switch (act) {
+    case 'wave': lel = [120, -450]; lw = [140 + Math.sin(lt * 9) * 45, -540]; break;
+    case 'clap': { const c = (Math.sin(lt * TAU * 1.4) + 1) / 2, x = 12 + c * 140; lel = [110, -300]; rel = [-110, -300]; lw = [x, -330]; rw = [-x, -330]; break; }
+    case 'jump': by = legBy = -Math.max(0, Math.sin(lt * TAU * 0.9)) * 90; lel = [130, -330]; rel = [-130, -330]; lw = [170, -360]; rw = [-170, -360]; break;
+    case 'fly': lel = [180, -385]; rel = [-180, -385]; lw = [300, -390 + Math.sin(lt * 6) * 15]; rw = [-300, -390 - Math.sin(lt * 6) * 15]; break;
+    case 'squat': { const d = Math.max(0, Math.min(1, lt / 0.4, (2.5 - lt) / 0.4)); by = 140 * d; lk = [50 + 60 * d, -110]; rk = [-50 - 60 * d, -110]; lel = [110, -260]; rel = [-110, -260]; lw = [70, -230]; rw = [-70, -230]; break; }
+    case 'up': lel = [95, -470]; rel = [-95, -470]; lw = [85, -565]; rw = [-85, -565]; break;
+  }
+  const up = { nose: [0, -480], le: [25, -495], re: [-25, -495], lear: [45, -485], rear: [-45, -485], ls: [70, -380], rs: [-70, -380], lel, rel, lw, rw, lh: [45, -210], rh: [-45, -210] };
+  const low = { lk, rk, la: [50, 0], ra: [-50, 0] };
+  const gy = 690, out = {};
+  for (const n in up) out[n] = { x: (cx + (up[n][0] + sway) * k) / 1280, y: (gy + (up[n][1] + by) * k) / 720 };
+  for (const n in low) out[n] = { x: (cx + low[n][0] * k) / 1280, y: (gy + (low[n][1] + legBy) * k) / 720 };
+  return out;
+}
+const DEMO_IDX = { nose: 0, le: 2, re: 5, lear: 7, rear: 8, ls: 11, rs: 12, lel: 13, rel: 14, lw: 15, rw: 16, lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28 };
+function toLandmarks(K) {
+  const L = Array.from({ length: 33 }, () => ({ ...K.nose }));
+  for (const n in DEMO_IDX) L[DEMO_IDX[n]] = { ...K[n] };
+  [1, 3].forEach(i => L[i] = { ...K.le }); [4, 6].forEach(i => L[i] = { ...K.re });
+  [17, 19, 21].forEach(i => L[i] = { ...K.lw }); [18, 20, 22].forEach(i => L[i] = { ...K.rw });
+  [29, 31].forEach(i => L[i] = { ...K.la }); [30, 32].forEach(i => L[i] = { ...K.ra });
+  return L.map(p => ({ x: p.x, y: p.y, z: 0, visibility: 0.99 }));
+}
+function demoPoses(t) {
+  return DEMO_KIDS.map(kid => {
+    let lt = (t + kid.phase) % DEMO_LEN, i = 0;
+    while (lt >= DEMO_SEQ[i][1]) { lt -= DEMO_SEQ[i][1]; i++; }
+    const [act, dur] = DEMO_SEQ[i];
+    const K = demoKeys(act, lt, kid.cx, kid.k);
+    const blend = 0.35;
+    if (dur - lt < blend) {   // 平滑过渡到下一个动作
+      const w = 1 - (dur - lt) / blend, K2 = demoKeys(DEMO_SEQ[(i + 1) % DEMO_SEQ.length][0], 0, kid.cx, kid.k);
+      for (const n in K) { K[n].x += (K2[n].x - K[n].x) * w; K[n].y += (K2[n].y - K[n].y) * w; }
+    }
+    return toLandmarks(K);
+  });
+}
+
+/* ---------------- action detection ---------------- */
+const HOLD = 1600;
+function detect(tr, now) {
+  const L = tr.L, v = i => (L[i].visibility ?? 1) > 0.5;
+  if (!(v(11) && v(12))) return;
+  const sc = mid(L[11], L[12]);
+  let sw = Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y);
+  if (v(23) && v(24)) sw = Math.max(sw, Math.hypot(sc.x - mid(L[23], L[24]).x, sc.y - mid(L[23], L[24]).y) * 0.6);
+  sw = Math.max(0.03, sw);
+  const sy = sc.y, lw = L[15], rw = L[16], lOK = v(15), rOK = v(16), headY = L[0].y;
+  const bothUp = lOK && rOK && lw.y < headY && rw.y < headY;
+
+  // 双手举高保持 → 变身
+  if (bothUp && !tr.needLower) {
+    if (!tr.upStart) { tr.upStart = now; fire(tr, 'cheer'); }
+    tr.hold = Math.min(1, (now - tr.upStart) / HOLD);
+    if (tr.hold >= 1) { transform(tr, (tr.char + 1) % CHARS.length, true); tr.needLower = true; tr.hold = 0; }
+  } else { if (!bothUp) tr.needLower = false; tr.upStart = 0; tr.hold = 0; }
+
+  // 跳 / 蹲
+  if (tr.base == null) tr.base = sy;
+  const dy = (tr.base - sy) / sw;
+  if (!tr.inJump && dy > 0.32 && now - tr.lastJump > 300) { tr.inJump = true; tr.lastJump = now; tr.jumps++; fire(tr, 'jump'); }
+  else if (tr.inJump && dy < 0.12) tr.inJump = false;
+  if (!tr.inSquat && dy < -0.75) { tr.squatT = tr.squatT || now; if (now - tr.squatT > 250) { tr.inSquat = true; fire(tr, 'squat'); } }
+  else if (dy > -0.3) { if (tr.inSquat) tr.lastJump = now; tr.inSquat = false; tr.squatT = 0; }
+  // 蹲着的时候先不跟随基准线（4 秒内），避免站起来时被误判成"跳"
+  const holdBase = dy < -0.5 && tr.squatT && now - tr.squatT < 4000;
+  if (!tr.inJump && !holdBase) tr.base += (sy - tr.base) * (dy < 0 ? 0.006 : 0.04);
+
+  // 拍手
+  if (lOK && rOK) {
+    const d = Math.hypot(lw.x - rw.x, lw.y - rw.y) / sw;
+    if (d > 1.0) tr.apart = true;
+    if (d < 0.45 && tr.apart && !bothUp) { tr.apart = false; fire(tr, 'clap'); }
+  }
+
+  // 张开双臂飞
+  const fly = lOK && rOK && Math.abs(lw.y - sy) < 0.55 * sw && Math.abs(rw.y - sy) < 0.55 * sw && Math.abs(lw.x - rw.x) > 2.4 * sw;
+  if (fly) { if (!tr.flyT) tr.flyT = now; if (!tr.flying && now - tr.flyT > 300) { tr.flying = true; fire(tr, 'fly'); } }
+  else { tr.flyT = 0; tr.flying = false; }
+
+  // 挥手
+  const lUp = lOK && lw.y < sy - 0.35 * sw, rUp = rOK && rw.y < sy - 0.35 * sw;
+  if (lUp !== rUp && !bothUp) {
+    const w = lUp ? lw : rw, th = 0.25 * sw;
+    if (tr.wAnchor == null) { tr.wAnchor = w.x; tr.wDir = 0; }
+    const dx = w.x - tr.wAnchor;
+    if (dx > th) { if (tr.wDir === -1) tr.wTurns.push(now); tr.wDir = 1; tr.wAnchor = w.x; }
+    else if (dx < -th) { if (tr.wDir === 1) tr.wTurns.push(now); tr.wDir = -1; tr.wAnchor = w.x; }
+    tr.wTurns = tr.wTurns.filter(x => now - x < 1500);
+    if (tr.wTurns.length >= 2 && now - tr.lastWave > 2000) { tr.lastWave = now; tr.wTurns = []; fire(tr, 'wave'); }
+  } else { tr.wAnchor = null; tr.wTurns = []; }
+}
+
+function fire(tr, type) {
+  const now = performance.now();
+  if (type !== 'jump' && now - (tr.cool[type] || 0) < 800) return;
+  tr.cool[type] = now; tr.excite = 1;
+  (window.__events ||= []).push(type);
+  const P = pix(tr); if (!P) return;
+  const s = P.s, head = { x: P.nose.x, y: P.nose.y - s * 1.1 };
+  const hands = (P.lw && P.rw) ? mid(P.lw, P.rw) : (P.lw || P.rw || head);
+  const fs = Math.max(34, s * 0.55), fx = CHARS[tr.char].fx || {};
+  switch (type) {
+    case 'cheer':
+      burst(head.x, head.y, fx.cheer || ['⭐', '🌟', '✨'], 12, s);
+      if (fx.cheer) { snowfall(); say('下雪啦！', head, fs, '#1c7ed6'); } else say('哇！', head, fs, '#ff9f1c');
+      sfx.chime(); break;
+    case 'jump': burst(P.feet.x, P.feet.y, fx.jump || ['⭐', '✨', '💫'], 12, s); say(`跳！${tr.jumps}`, head, fs, '#ff5d73'); sfx.boing(); speak(String(tr.jumps)); break;
+    case 'clap': burst(hands.x, hands.y, fx.clap || ['✨', '🎉', '💥'], 12, s); say('啪啪！', head, fs, '#7048e8'); sfx.clap(); break;
+    case 'wave': burst((P.lw && P.lw.y < P.ls.y ? P.lw : P.rw || head).x, (P.lw && P.lw.y < P.ls.y ? P.lw : P.rw || head).y, ['💖', '💕', '👋'], 10, s); say('你好呀！', head, fs, '#e64980'); sfx.hello(); speak('你好呀！'); break;
+    case 'squat': burst(P.feet.x, P.feet.y, ['🍄', '🌼', '🌷'], 10, s); say('蹲下啦～', head, fs, '#2b8a3e'); sfx.down(); break;
+    case 'fly': say('飞呀～', head, fs, '#1c7ed6'); sfx.whoosh(); break;
+  }
+}
+function transform(tr, idx, talk) {
+  tr.char = idx; tr.morph = 1; tr.excite = 1;
+  (window.__events ||= []).push('transform');
+  const P = pix(tr), ch = CHARS[idx];
+  if (P) { const c = mid(P.ls, P.rs); burst(c.x, c.y, ['🎉', '✨', '🌈', '⭐'], 22, P.s); say(`变成${ch.name}啦！`, { x: P.nose.x, y: P.nose.y - P.s * 1.4 }, Math.max(40, P.s * 0.65), '#ff5d73'); }
+  sfx.magic(); if (talk) speak(`变成${ch.name}啦！${ch.say}`);
+}
+function setAll(i) {
+  defaultChar = i; markPickers();
+  if (!tracks.length) { toast(`下一个出场：${CHARS[i].name}`); sfx.chime(); return; }
+  tracks.forEach((tr, k) => transform(tr, i, k === 0));
+}
+
+/* ---------------- particles & text ---------------- */
+function mkP(x, y, e, size, sp = 380, grav = 700) {
+  return { x, y, e, size, vx: (Math.random() - 0.5) * sp, vy: -Math.random() * sp - sp * 0.2, g: grav, life: 1.2, max: 1.2, rot: Math.random() * TAU, vr: (Math.random() - 0.5) * 6 };
+}
+function burst(x, y, emojis, n, s) { for (let i = 0; i < n; i++) particles.push(mkP(x, y, emojis[i % emojis.length], Math.max(22, s * (0.3 + Math.random() * 0.3)))); if (particles.length > 400) particles.splice(0, particles.length - 400); }
+function snowfall() {
+  for (let i = 0; i < 40; i++) {
+    const p = mkP(Math.random() * W, -Math.random() * H * 0.4, Math.random() < 0.8 ? '❄️' : '✨', 18 + Math.random() * 26, 60, 60);
+    p.vy = 60 + Math.random() * 80; p.life = p.max = 4 + Math.random() * 2; particles.push(p);
+  }
+}
+function say(text, p, size, color) {
+  const x = Math.max(size * 2, Math.min(W - size * 2, p.x)), y = Math.max(size * 1.6, p.y);
+  texts.push({ text, x, y, size, color, life: 1.4, age: 0 });
+}
+function toast(text) { texts.push({ text, x: W / 2, y: H * 0.22, size: Math.max(32, H * 0.05), color: '#2b2d42', life: 1.8, age: 0 }); }
+const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+const TEXT_FONT = '"Microsoft YaHei","PingFang SC","Noto Sans CJK SC","Noto Sans SC",sans-serif';
+function drawParticles(dt) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const p of particles) {
+    p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.max * 1.6)); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.font = `${p.size}px ${EMOJI_FONT}`; ctx.fillText(p.e, 0, 0); ctx.restore();
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+function drawTexts(dt) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const tx of texts) {
+    tx.life -= dt; tx.age += dt; tx.y -= 35 * dt;
+    const k = tx.age < 0.15 ? 0.5 + tx.age / 0.15 * 0.5 : 1;
+    ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, tx.life * 2)); ctx.translate(tx.x, tx.y); ctx.scale(k, k);
+    ctx.font = `bold ${tx.size}px "Microsoft YaHei","PingFang SC",sans-serif`;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = tx.size * 0.22; ctx.strokeText(tx.text, 0, 0);
+    ctx.fillStyle = tx.color; ctx.fillText(tx.text, 0, 0); ctx.restore();
+  }
+  texts = texts.filter(t => t.life > 0);
+}
+
+/* ---------------- bubbles ---------------- */
+function updBubbles(dt, t, touchers) {
+  if (!bubblesOn) { bubbles.length = 0; return; }
+  if (t - lastBubble > 0.8 && bubbles.length < 14) {
+    lastBubble = t; const r = (0.035 + Math.random() * 0.035) * Math.min(W, H);
+    bubbles.push({ x: r + Math.random() * (W - 2 * r), y: H + r, r, vy: 45 + Math.random() * 55, ph: Math.random() * 6, hue: Math.random() * 360 });
+  }
+  for (const b of bubbles) {
+    b.y -= b.vy * dt; b.ph += dt * 2; b.cx = b.x + Math.sin(b.ph) * b.r * 0.4;
+    for (const h of touchers) if (Math.hypot(h.x - b.cx, h.y - b.y) < b.r + h.r) { b.pop = true; break; }
+    if (b.pop) { burst(b.cx, b.y, ['✨', '💦', '⭐'], 6, b.r * 1.4); sfx.pop(); popCount++; continue; }
+    const gr = ctx.createRadialGradient(b.cx - b.r * 0.35, b.y - b.r * 0.35, b.r * 0.1, b.cx, b.y, b.r);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.5, `hsla(${b.hue},90%,80%,0.25)`); gr.addColorStop(1, `hsla(${b.hue},90%,70%,0.55)`);
+    ctx.fillStyle = gr; circ(ctx, b.cx, b.y, b.r);
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.cx, b.y, b.r, 0, TAU); ctx.stroke();
+  }
+  bubbles = bubbles.filter(b => !b.pop && b.y > -b.r * 2);
+}
+
+/* ---------------- main loop ---------------- */
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr; buildScene();
+}
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  if (!running) return;
+  if (demo) updateTracks(demoPoses(now / 1000), now);
+  else if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    try { const res = landmarker.detectForVideo(video, now); updateTracks(res.landmarks || [], now); } catch (e) { console.error(e); }
+  }
+  const t = now / 1000;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const camBg = bgMode === 'camera' && !demo && video.videoWidth;
+  if (camBg) drawVideoCover(ctx); else drawScene(t);
+
+  const live = tracks.filter(tr => now - tr.last < 400).map(tr => ({ tr, P: pix(tr) })).filter(o => o.P).sort((a, b) => a.P.s - b.P.s);
+  const touchers = [];
+  for (const { P } of live) { if (P.lw) touchers.push({ ...P.lw, r: P.s * 0.3 }); if (P.rw) touchers.push({ ...P.rw, r: P.s * 0.3 }); touchers.push({ ...P.nose, r: P.s * 0.6 }); }
+  updBubbles(dt, t, touchers);
+
+  for (const { tr, P } of live) {
+    if (!tr.nextBlink) tr.nextBlink = now + 2000 + Math.random() * 3000;
+    tr.blink = now > tr.nextBlink && now < tr.nextBlink + 140;
+    if (now > tr.nextBlink + 140) tr.nextBlink = now + 2000 + Math.random() * 3000;
+    tr.excite = Math.max(0, tr.excite - dt * 1.2); tr.morph = Math.max(0, tr.morph - dt * 1.8);
+    drawCharacter(ctx, P, CHARS[tr.char], tr, t);
+    if (tr.flying && Math.random() < 0.35) { const h = Math.random() < 0.5 ? P.lw : P.rw; if (h) { const p = mkP(h.x, h.y, (CHARS[tr.char].fx || {}).trail || '☁️', P.s * 0.4, 120, -40); p.life = p.max = 0.9; particles.push(p); } }
+  }
+  drawParticles(dt); drawTexts(dt);
+
+  if (!camBg && !demo && showPreview) drawPreview();
+  if (demo) {
+    const sz = Math.max(20, H * 0.03), msg = '🎬 演示模式 · 按 D 退出';
+    ctx.font = `bold ${sz}px ${TEXT_FONT}`; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(msg, W - 20, 20); ctx.fillStyle = '#7048e8'; ctx.fillText(msg, W - 20, 20);
+  }
+  if (bubblesOn) {
+    ctx.font = `bold ${Math.max(26, H * 0.04)}px ${TEXT_FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.strokeText(`🫧 × ${popCount}`, 20, 20); ctx.fillStyle = '#1c7ed6'; ctx.fillText(`🫧 × ${popCount}`, 20, 20);
+  }
+  if (!live.length) {
+    const sz = Math.max(36, H * 0.07), y = H * 0.45 + Math.sin(t * 3) * 12;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${sz}px "Microsoft YaHei","PingFang SC",sans-serif`;
+    ctx.lineWidth = sz * 0.2; ctx.strokeStyle = '#fff'; const msg = landmarker ? '站到摄像头前面来吧！👋' : '准备中…';
+    ctx.strokeText(msg, W / 2, y); ctx.fillStyle = '#ff5d73'; ctx.fillText(msg, W / 2, y);
+  }
+}
+
+/* ---------------- UI ---------------- */
+function startGame(isDemo = false) {
+  audio(); demo = isDemo; running = true; syncTools(); $('#start').hidden = true; $('#hud').hidden = false; poke();
+  tracks = []; popCount = 0;
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function goHome() { running = false; $('#start').hidden = false; $('#hud').hidden = true; if (document.fullscreenElement) document.exitFullscreen?.(); }
+$('#btnGo').onclick = () => startGame(false);
+$('#btnDemo').onclick = () => startGame(true);
+$('#ver').textContent = `${VERSION} · ${VERSION_DATE}`;
+$('#barVer').textContent = VERSION;
+
+function syncTools() {
+  const q = a => document.querySelector(`.tools [data-act="${a}"]`);
+  q('bg').textContent = bgMode === 'cartoon' ? '🏞️ 卡通背景' : '📹 真实画面';
+  q('bubbles').classList.toggle('off', !bubblesOn);
+  q('face').classList.toggle('off', !faceMode);
+  q('demo').classList.toggle('off', !demo);
+  q('sound').textContent = soundOn ? '🔊 声音' : '🔇 静音';
+}
+function act(a) {
+  if (a === 'bg') bgMode = bgMode === 'cartoon' ? 'camera' : 'cartoon';
+  if (a === 'bubbles') bubblesOn = !bubblesOn;
+  if (a === 'demo') {
+    if (!demo) { demo = true; tracks = []; toast('🎬 演示模式'); }
+    else if (stream && landmarker) { demo = false; tracks = []; toast('📷 摄像头模式'); }
+    else { goHome(); return; }   // 没有摄像头时，退出演示就回到设置页
+  }
+  if (a === 'face') { faceMode = !faceMode; toast(faceMode ? '🙂 真脸模式' : '🎭 卡通脸模式'); }
+  if (a === 'sound') { soundOn = !soundOn; if (!soundOn) try { speechSynthesis.cancel(); } catch (e) {} }
+  if (a === 'cam') nextCamera();
+  if (a === 'full') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {});
+  if (a === 'home') goHome();
+  syncTools();
+}
+document.querySelectorAll('.tools button').forEach(b => b.onclick = () => act(b.dataset.act));
+
+let idleTimer = 0;
+function poke() { $('#hud').classList.remove('idle'); clearTimeout(idleTimer); idleTimer = setTimeout(() => $('#hud').classList.add('idle'), 5000); }
+addEventListener('mousemove', () => running && poke());
+addEventListener('keydown', e => {
+  if (!running) return; poke();
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= String(CHARS.length)) setAll(+k - 1);
+  else if (k === ' ') { e.preventDefault(); setAll((defaultChar + 1) % CHARS.length); }
+  else if (k === 'v') act('face');
+  else if (k === 'd') act('demo');
+  else if (k === 'b') act('bg'); else if (k === 'g') act('bubbles'); else if (k === 'm') act('sound');
+  else if (k === 'c') act('cam'); else if (k === 'f') act('full'); else if (k === 's') act('home');
+  else if (k === 'p') showPreview = !showPreview;
+});
+addEventListener('resize', resize);
+
+resize(); buildPickers(); syncTools(); refresh(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
