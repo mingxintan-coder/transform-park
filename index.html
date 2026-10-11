@@ -1,6 +1,7 @@
 <!doctype html>
 <!--
   变身乐园 版本记录
+  v1.3.0 (2026-10-11) 新增 5 个游戏：接水果、拍拍小动物、跟我做、冻住舞会、找颜色；演示小朋友会玩每个游戏
   v1.2.0 (2026-10-11) 新增演示模式（不用摄像头）、版本号；蹲下后站起不再误判为跳
   v1.1.0 (2026-10-11) 新增企鹅魔法师、真脸模式
   v1.0.0 (2026-10-11) 首个版本：6 个角色、动作识别、泡泡、语音
@@ -48,6 +49,13 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
 .tools{display:flex;gap:6px}
 .tools button{font-size:16px;padding:10px 12px;border-radius:12px;background:#f4f6fb;color:var(--ink);white-space:nowrap}
 .tools button.off{opacity:.45}
+.games{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+.games button{background:#f4f6fb;border-radius:18px;padding:10px 6px;border:4px solid transparent;font-size:17px;font-weight:bold;color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:2px}
+.games button b{font-size:40px;line-height:1.1}
+.games button.on{border-color:#4dabf7;background:#e7f5ff}
+#gbar{position:absolute;bottom:96px;left:50%;transform:translateX(-50%);display:flex;gap:6px;background:#ffffffe6;border-radius:20px;padding:6px 8px;pointer-events:auto;box-shadow:0 6px 20px #0003;max-width:calc(100vw - 24px);overflow-x:auto}
+#gbar button{font-size:16px;padding:8px 12px;border-radius:12px;background:#f4f6fb;color:var(--ink);white-space:nowrap;border:3px solid transparent;font-family:inherit;cursor:pointer}
+#gbar button.on{border-color:#4dabf7;background:#e7f5ff}
 .demo{margin:12px 0 0;font-size:18px;padding:10px 26px;border-radius:16px;background:#f4f6fb;color:var(--ink);box-shadow:0 4px 0 #d7dce6}
 .ver{color:#9aa1ad;font-size:13px;margin:8px 0 0}
 #barVer{color:#9aa1ad;font-size:12px;white-space:nowrap;padding:0 4px}
@@ -59,6 +67,7 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
 
 <div id="hud" hidden>
   <div id="hints">🙌 双手举高 2 秒＝变身　🦘 跳一跳　👏 拍拍手　👋 挥挥手　✈️ 张开双臂　🍄 蹲下　🫧 碰泡泡</div>
+  <div id="gbar"></div>
   <div id="bar">
     <div id="barChars"></div>
     <div class="tools">
@@ -89,16 +98,18 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
     </div>
     <h2>② 选一个角色</h2>
     <div class="chars" id="chars"></div>
-    <button id="btnGo" class="go" disabled>③ 开始玩！</button><br>
+    <h2>③ 选一个游戏</h2>
+    <div class="games" id="gamesPick"></div>
+    <button id="btnGo" class="go" disabled>④ 开始玩！</button><br>
     <button id="btnDemo" class="demo">🎬 演示模式（不用摄像头，先看看效果）</button>
-    <p class="tips">家长遥控键：数字 1–7 换角色 · 空格 下一个角色 · V 真脸/卡通脸 · D 演示模式 · B 背景 · G 泡泡 · M 声音 · C 换摄像头 · P 小窗 · F 全屏 · S 回到设置<br>
+    <p class="tips">家长遥控键：数字 1–7 换角色 · 空格 下一个角色 · N 下一个游戏 · V 真脸/卡通脸 · D 演示模式 · B 背景 · G 泡泡 · M 声音 · C 换摄像头 · P 小窗 · F 全屏 · S 回到设置<br>
     建议：孩子站在电视前 2–3 米，让摄像头能拍到全身；光线亮一点识别更准。</p>
     <p class="ver" id="ver"></p>
   </div>
 </div>
 
 <script type="module">
-const VERSION = 'v1.2.0', VERSION_DATE = '2026-10-11';
+const VERSION = 'v1.3.0', VERSION_DATE = '2026-10-11';
 const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
 const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
 
@@ -572,7 +583,7 @@ function drawPreview() {
 /* ---------------- tracking ---------------- */
 const IDX = { nose: 0, le: 2, re: 5, ls: 11, rs: 12, lel: 13, rel: 14, lw: 15, rw: 16, lh: 23, rh: 24, lk: 25, rk: 26, la: 27, ra: 28 };
 function mapPt(p) {
-  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const vw = (!demo && video.videoWidth) || 1280, vh = (!demo && video.videoHeight) || 720;
   const k = Math.max(W / vw, H / vh), dw = vw * k, dh = vh * k;
   return { x: (W - dw) / 2 + (1 - p.x) * dw, y: (H - dh) / 2 + p.y * dh };
 }
@@ -602,6 +613,14 @@ function updateTracks(poses, now) {
     for (const tr of tracks) { if (used.has(tr) || !tr.c) continue; const d = Math.hypot(tr.c.x - c.x, tr.c.y - c.y); if (d < bd) { bd = d; best = tr; } }
     if (!best) { best = newTrack(); tracks.push(best); }
     used.add(best); best.c = c; best.last = now;
+    // 动作幅度（冻住舞会用）：关键点每帧移动量 / 肩宽
+    if (best.prevRaw) {
+      const ids = [0, 11, 12, 13, 14, 15, 16]; let m = 0;
+      for (const i of ids) m += Math.hypot(lm[i].x - best.prevRaw[i].x, lm[i].y - best.prevRaw[i].y);
+      const sw = Math.max(0.03, Math.hypot(lm[11].x - lm[12].x, lm[11].y - lm[12].y));
+      best.motion = (best.motion || 0) * 0.7 + (m / ids.length / sw) * 0.3;
+    }
+    best.prevRaw = lm.map(p => ({ x: p.x, y: p.y }));
     if (!best.L) best.L = lm.map(p => ({ x: p.x, y: p.y, visibility: p.visibility }));
     else lm.forEach((p, i) => { const q = best.L[i]; q.x += (p.x - q.x) * 0.6; q.y += (p.y - q.y) * 0.6; q.visibility = p.visibility; });
     detect(best, now);
@@ -614,18 +633,31 @@ const DEMO_SEQ = [['idle', 2.5], ['wave', 3], ['clap', 3], ['jump', 3.5], ['fly'
 const DEMO_LEN = DEMO_SEQ.reduce((a, b) => a + b[1], 0);
 const DEMO_KIDS = [{ cx: 430, k: 0.62, phase: 0 }, { cx: 870, k: 0.52, phase: DEMO_LEN / 2 }];
 // 偏移量以"脚底"为原点，y 向上为负；坐标是 1280×720 的虚拟画面，l = 孩子自己的左边
-function demoKeys(act, lt, cx, k) {
+function demoKeys(act, lt, cx, k, opt = {}) {
   let by = 0, legBy = 0;
-  const sway = Math.sin(lt * 2) * 6;
+  let sway = opt.still ? 0 : Math.sin(lt * 2) * 6;
   let lel = [95, -300], lw = [100, -220], rel = [-95, -300], rw = [-100, -220];
   let lk = [50, -105], rk = [-50, -105];
   switch (act) {
+    case 'dance': {
+      const a = Math.sin(lt * 6); by = legBy = -Math.abs(Math.sin(lt * 6)) * 22; sway = Math.sin(lt * 3) * 30;
+      lel = [130, -380 - 60 * a]; lw = [150, -420 - 140 * a]; rel = [-130, -380 + 60 * a]; rw = [-150, -420 + 140 * a]; break;
+    }
+    case 'head': lel = [130, -460]; rel = [-130, -460]; lw = [55, -530]; rw = [-55, -530]; break;
+    case 'reach': {
+      const side = opt.tx >= 0 ? 1 : -1, sh = [70 * side, -380];
+      let vx = opt.tx - sh[0], vy = opt.ty - sh[1]; const L = Math.hypot(vx, vy) || 1, m = Math.min(L, 250);
+      vx = vx / L * m; vy = vy / L * m;
+      const wr = [sh[0] + vx, sh[1] + vy], el = [sh[0] + vx * 0.5 + side * 18, sh[1] + vy * 0.5 + 15];
+      if (side > 0) { lel = el; lw = wr; } else { rel = el; rw = wr; }
+      break;
+    }
     case 'wave': lel = [120, -450]; lw = [140 + Math.sin(lt * 9) * 45, -540]; break;
     case 'clap': { const c = (Math.sin(lt * TAU * 1.4) + 1) / 2, x = 12 + c * 140; lel = [110, -300]; rel = [-110, -300]; lw = [x, -330]; rw = [-x, -330]; break; }
     case 'jump': by = legBy = -Math.max(0, Math.sin(lt * TAU * 0.9)) * 90; lel = [130, -330]; rel = [-130, -330]; lw = [170, -360]; rw = [-170, -360]; break;
     case 'fly': lel = [180, -385]; rel = [-180, -385]; lw = [300, -390 + Math.sin(lt * 6) * 15]; rw = [-300, -390 - Math.sin(lt * 6) * 15]; break;
     case 'squat': { const d = Math.max(0, Math.min(1, lt / 0.4, (2.5 - lt) / 0.4)); by = 140 * d; lk = [50 + 60 * d, -110]; rk = [-50 - 60 * d, -110]; lel = [110, -260]; rel = [-110, -260]; lw = [70, -230]; rw = [-70, -230]; break; }
-    case 'up': lel = [95, -470]; rel = [-95, -470]; lw = [85, -565]; rw = [-85, -565]; break;
+    case 'up': lel = [95, -500]; rel = [-95, -500]; lw = [85, -640]; rw = [-85, -640]; break;
   }
   const up = { nose: [0, -480], le: [25, -495], re: [-25, -495], lear: [45, -485], rear: [-45, -485], ls: [70, -380], rs: [-70, -380], lel, rel, lw, rw, lh: [45, -210], rh: [-45, -210] };
   const low = { lk, rk, la: [50, 0], ra: [-50, 0] };
@@ -643,15 +675,38 @@ function toLandmarks(K) {
   [29, 31].forEach(i => L[i] = { ...K.la }); [30, 32].forEach(i => L[i] = { ...K.ra });
   return L.map(p => ({ x: p.x, y: p.y, z: 0, visibility: 0.99 }));
 }
+// 虚拟画面（1280×720）和屏幕像素之间换算
+function demoFrame() { const k = Math.max(W / 1280, H / 720); return { k, dw: 1280 * k, dh: 720 * k, ox: (W - 1280 * k) / 2, oy: (H - 720 * k) / 2 }; }
+const kidScreenX = cx => { const f = demoFrame(); return f.ox + (1 - cx / 1280) * f.dw; };
+const screenToVirtual = (sx, sy) => { const f = demoFrame(); return { x: (1 - (sx - f.ox) / f.dw) * 1280, y: (sy - f.oy) / f.dh * 720 }; };
+const DEMO_ST = DEMO_KIDS.map(k => ({ cx: k.cx }));
+let demoLastT = 0;
 function demoPoses(t) {
-  return DEMO_KIDS.map(kid => {
+  const dt = Math.min(0.1, Math.max(0, t - demoLastT)); demoLastT = t;
+  return DEMO_KIDS.map((kid, ki) => {
+    const st = DEMO_ST[ki];
+    // 玩游戏时，演示小朋友按游戏要求行动
+    if (G) {
+      const plan = G.phase === 'play' ? IMPL[G.id].demo(ki, kidScreenX(st.cx), t) : { act: G.phase === 'done' ? 'dance' : 'idle' };
+      let act = plan.act, lt = plan.lt ?? t + ki;
+      const opt = {};
+      if (act === 'reach') {
+        const v = screenToVirtual(plan.sx, plan.sy), side = Math.sign(v.x - st.cx) || 1;
+        const goal = Math.max(180, Math.min(1100, v.x - side * 170 * kid.k));
+        st.cx += Math.sign(goal - st.cx) * Math.min(Math.abs(goal - st.cx), 320 * dt);
+        opt.tx = (v.x - st.cx) / kid.k; opt.ty = (v.y - 690) / kid.k;
+      } else st.cx += (kid.cx - st.cx) * Math.min(1, dt * 1.5);
+      if (act === 'still') { act = 'idle'; opt.still = true; lt = 0; }
+      return toLandmarks(demoKeys(act, lt, st.cx, kid.k, opt));
+    }
+    st.cx += (kid.cx - st.cx) * Math.min(1, dt * 1.5);
     let lt = (t + kid.phase) % DEMO_LEN, i = 0;
     while (lt >= DEMO_SEQ[i][1]) { lt -= DEMO_SEQ[i][1]; i++; }
     const [act, dur] = DEMO_SEQ[i];
-    const K = demoKeys(act, lt, kid.cx, kid.k);
+    const K = demoKeys(act, lt, st.cx, kid.k);
     const blend = 0.35;
     if (dur - lt < blend) {   // 平滑过渡到下一个动作
-      const w = 1 - (dur - lt) / blend, K2 = demoKeys(DEMO_SEQ[(i + 1) % DEMO_SEQ.length][0], 0, kid.cx, kid.k);
+      const w = 1 - (dur - lt) / blend, K2 = demoKeys(DEMO_SEQ[(i + 1) % DEMO_SEQ.length][0], 0, st.cx, kid.k);
       for (const n in K) { K[n].x += (K2[n].x - K[n].x) * w; K[n].y += (K2[n].y - K[n].y) * w; }
     }
     return toLandmarks(K);
@@ -670,8 +725,8 @@ function detect(tr, now) {
   const sy = sc.y, lw = L[15], rw = L[16], lOK = v(15), rOK = v(16), headY = L[0].y;
   const bothUp = lOK && rOK && lw.y < headY && rw.y < headY;
 
-  // 双手举高保持 → 变身
-  if (bothUp && !tr.needLower) {
+  // 双手举高保持 → 变身（只在自由变身模式，玩游戏时不打断）
+  if (!G && bothUp && !tr.needLower) {
     if (!tr.upStart) { tr.upStart = now; fire(tr, 'cheer'); }
     tr.hold = Math.min(1, (now - tr.upStart) / HOLD);
     if (tr.hold >= 1) { transform(tr, (tr.char + 1) % CHARS.length, true); tr.needLower = true; tr.hold = 0; }
@@ -692,7 +747,7 @@ function detect(tr, now) {
   if (lOK && rOK) {
     const d = Math.hypot(lw.x - rw.x, lw.y - rw.y) / sw;
     if (d > 1.0) tr.apart = true;
-    if (d < 0.45 && tr.apart && !bothUp) { tr.apart = false; fire(tr, 'clap'); }
+    if (d < 0.45 && tr.apart && !bothUp) { tr.apart = false; tr.claps = (tr.claps || 0) + 1; fire(tr, 'clap'); }
   }
 
   // 张开双臂飞
@@ -711,6 +766,13 @@ function detect(tr, now) {
     tr.wTurns = tr.wTurns.filter(x => now - x < 1500);
     if (tr.wTurns.length >= 2 && now - tr.lastWave > 2000) { tr.lastWave = now; tr.wTurns = []; fire(tr, 'wave'); }
   } else { tr.wAnchor = null; tr.wTurns = []; }
+
+  // 当前姿势（"跟我做"用）
+  const nose = L[0], up = lOK && rOK && lw.y < headY - 1.0 * sw && rw.y < headY - 1.0 * sw;
+  tr.pf = {
+    up, fly, squat: dy < -0.6, one: lUp !== rUp,
+    head: !up && lOK && rOK && lw.y < sy && rw.y < sy && Math.hypot(lw.x - nose.x, lw.y - nose.y) < 1.3 * sw && Math.hypot(rw.x - nose.x, rw.y - nose.y) < 1.3 * sw,
+  };
 }
 
 function fire(tr, type) {
@@ -718,6 +780,7 @@ function fire(tr, type) {
   if (type !== 'jump' && now - (tr.cool[type] || 0) < 800) return;
   tr.cool[type] = now; tr.excite = 1;
   (window.__events ||= []).push(type);
+  if (G) { if (type === 'jump') sfx.boing(); else if (type === 'clap') sfx.clap(); return; }  // 玩游戏时保持安静，只留音效
   const P = pix(tr); if (!P) return;
   const s = P.s, head = { x: P.nose.x, y: P.nose.y - s * 1.1 };
   const hands = (P.lw && P.rw) ? mid(P.lw, P.rw) : (P.lw || P.rw || head);
@@ -806,6 +869,351 @@ function updBubbles(dt, t, touchers) {
   bubbles = bubbles.filter(b => !b.pop && b.y > -b.r * 2);
 }
 
+/* ---------------- music (original tune, WebAudio) ---------------- */
+let musicTimer = null;
+const MELODY = [0, 4, 7, 4, 9, 7, 4, null, 2, 5, 9, 5, 7, null, 4, null, 0, 4, 7, 12, 11, 9, 7, null, 5, 4, 2, 4, 0, null, null, null];
+const BASS = [0, 0, 5, 5, 7, 7, 0, 0];
+function note(f, t0, dur, type, vol) {
+  const a = ac, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function startMusic() {
+  if (musicTimer) return; const a = audio(); if (!a) return;
+  let step = 0, nextT = a.currentTime + 0.05;
+  musicTimer = setInterval(() => {
+    while (nextT < a.currentTime + 0.3) {
+      if (soundOn) {
+        const m = MELODY[step % MELODY.length];
+        if (m != null) note(523.25 * 2 ** (m / 12), nextT, 0.17, 'triangle', 0.08);
+        if (step % 4 === 0) note(130.81 * 2 ** (BASS[(step >> 2) % BASS.length] / 12), nextT, 0.5, 'sine', 0.14);
+        if (step % 2 === 1) note(2400, nextT, 0.03, 'square', 0.015);
+      }
+      nextT += 0.17; step++;
+    }
+  }, 50);
+}
+function stopMusic() { clearInterval(musicTimer); musicTimer = null; }
+
+/* ---------------- games ---------------- */
+const GAMES = [
+  { id: 'free',   name: '自由变身',   icon: '🎭', hint: '🙌 双手举高 2 秒＝变身　🦘 跳一跳　👏 拍拍手　👋 挥挥手　✈️ 张开双臂　🍄 蹲下　🫧 碰泡泡' },
+  { id: 'catch',  name: '接水果',     icon: '🍎', hint: '🍎 用手或头接住掉下来的水果', intro: '接水果！用手接住掉下来的水果！' },
+  { id: 'whack',  name: '拍拍小动物', icon: '🐹', hint: '🐹 小动物冒出来了，快伸手拍拍它', intro: '小动物冒出来啦，快伸手拍拍它！' },
+  { id: 'simon',  name: '跟我做',     icon: '🙆', hint: '🙆 看看小人怎么做，跟着一起做', intro: '跟我做！看看小人怎么做，你也一起做！' },
+  { id: 'freeze', name: '冻住舞会',   icon: '🎵', hint: '🎵 有音乐就跳舞，音乐一停就冻住不动', intro: '冻住舞会！有音乐就跳舞，音乐一停就冻住不动！' },
+  { id: 'color',  name: '找颜色',     icon: '🎈', hint: '🎈 听我说颜色，去摸那个颜色的气球', intro: '找颜色！听我说颜色，去摸那个颜色的气球！' },
+];
+const gameInfo = id => GAMES.find(g => g.id === id);
+let gameId = 'free', G = null;
+const nowS = () => performance.now() / 1000;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const logEv = e => (window.__events ||= []).push(e);
+function emoji(e, x, y, size, rot = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.font = `${size}px ${EMOJI_FONT}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e, 0, 0); ctx.restore();
+}
+function label(text, x, y, size, color, align = 'center') {
+  ctx.font = `bold ${size}px ${TEXT_FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.lineWidth = size * 0.2; ctx.strokeStyle = '#fff'; ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+function card(cx, cy, w, h) {
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 24; ctx.fillStyle = 'rgba(255,255,255,0.94)';
+  rr(ctx, cx - w / 2, cy - h / 2, w, h, 28); ctx.fill(); ctx.restore();
+}
+function hitAny(o, list) { return list.find(h => Math.hypot(h.x - o.x, h.y - o.y) < o.r + h.r); }
+function starRain() {
+  for (let i = 0; i < 50; i++) {
+    const p = mkP(Math.random() * W, -Math.random() * H * 0.5, pick(['⭐', '🌟', '🎉', '✨']), 24 + Math.random() * 30, 80, 80);
+    p.vy = 80 + Math.random() * 120; p.life = p.max = 4 + Math.random() * 2; particles.push(p);
+  }
+}
+
+function setGame(id) {
+  gameId = id; stopMusic(); particles.length = 0; texts.length = 0;
+  const info = gameInfo(id);
+  G = id === 'free' ? null : { id, phase: 'intro', t0: nowS(), score: 0, objs: [], bump: 0 };
+  if (G) speak(info.intro); else if (running) toast('🎭 自由变身');
+  $('#hints').textContent = info.hint; markGames(); logEv('game:' + id);
+}
+function updateGame(dt, t, live, hands, all) {
+  const impl = IMPL[G.id];
+  if (G.phase === 'intro') {
+    const n = Math.ceil(4.5 - (t - G.t0));
+    if (t - G.t0 > 1.5 && n !== G.lastN && n > 0) { G.lastN = n; tone(660, 0.12, { vol: 0.1 }); }
+    if (t - G.t0 > 4.5) { G.phase = 'play'; G.tp = t; tone(990, 0.25, { vol: 0.12 }); impl.start(t); }
+  } else if (G.phase === 'play') {
+    impl.update(dt, t, live, hands, all);
+    if (impl.done(t)) { G.phase = 'done'; G.td = t; stopMusic(); starRain(); sfx.magic(); speak(`太棒了！你得到了${G.score}颗星星！`); logEv(`done:${G.id}:${G.score}`); }
+  } else if (G.phase === 'done' && t - G.td > 9) setGame(G.id);   // 自动再玩一次
+}
+function scoreUp() { G.score++; G.bump = 1; logEv('score:' + G.id); }
+
+/* --- 接水果 --- */
+const FRUITS = ['🍎', '🍌', '🍓', '🍉', '🍇', '🍊', '🍑', '⭐'];
+/* --- 跟我做 --- */
+const POSES = [
+  { id: 'up', name: '双手举高' }, { id: 'fly', name: '张开双臂' }, { id: 'squat', name: '蹲下来' },
+  { id: 'one', name: '举起一只手' }, { id: 'head', name: '双手摸摸头' }, { id: 'clap', name: '拍拍手' }, { id: 'jump', name: '跳一下' },
+];
+const SIMON_ACT = { up: 'up', fly: 'fly', squat: 'squat', one: 'wave', head: 'head', clap: 'clap', jump: 'jump' };
+function nextSimon(t) {
+  G.round++; let p; do { p = pick(POSES); } while (p === G.cur);
+  G.cur = p; G.rt = t; G.result = null; G.snap = new Map();
+  tracks.forEach(tr => { G.snap.set(tr, { j: tr.jumps, c: tr.claps || 0 }); tr.simonT = 0; });
+  speak(`跟我做：${p.name}！`); logEv('simon:' + p.id);
+}
+function simonOK(tr, t) {
+  if (t - G.rt < 0.8) return false;
+  const id = G.cur.id;
+  if (id === 'jump' || id === 'clap') {
+    if (!G.snap.has(tr)) G.snap.set(tr, { j: tr.jumps, c: tr.claps || 0 });
+    const s = G.snap.get(tr); return id === 'jump' ? tr.jumps > s.j : (tr.claps || 0) > s.c;
+  }
+  if (tr.pf && tr.pf[id]) { tr.simonT = tr.simonT || t; return t - tr.simonT > 0.4; }
+  tr.simonT = 0; return false;
+}
+const STICK = {
+  rest:  { h: [[-0.22, -0.05], [0.22, -0.05]], e: [[-0.22, -0.25], [0.22, -0.25]] },
+  up:    { h: [[-0.2, -0.95], [0.2, -0.95]],  e: [[-0.18, -0.68], [0.18, -0.68]] },
+  fly:   { h: [[-0.52, -0.42], [0.52, -0.42]], e: [[-0.3, -0.42], [0.3, -0.42]] },
+  one:   { h: [[-0.22, -0.05], [0.2, -0.95]],  e: [[-0.22, -0.25], [0.18, -0.68]] },
+  head:  { h: [[-0.08, -0.76], [0.08, -0.76]], e: [[-0.32, -0.62], [0.32, -0.62]] },
+  clap:  { h: [[-0.05, -0.3], [0.05, -0.3]],   e: [[-0.24, -0.28], [0.24, -0.28]] },
+  jump:  { h: [[-0.36, -0.78], [0.36, -0.78]], e: [[-0.26, -0.58], [0.26, -0.58]] },
+  squat: { h: [[-0.3, -0.05], [0.3, -0.05]],   e: [[-0.22, -0.15], [0.22, -0.15]] },
+};
+function drawStick(x, y, size, id, t) {
+  const p = STICK[id] || STICK.rest, sq = id === 'squat';
+  const oy = id === 'jump' ? -Math.abs(Math.sin(t * 4)) * 0.18 : 0, up = sq ? 0.22 : 0;
+  const S = (px, py) => [x + px * size, y + (py + oy) * size];
+  const line = pts => { ctx.beginPath(); pts.forEach((q, i) => { const [a, b] = S(q[0], q[1]); i ? ctx.lineTo(a, b) : ctx.moveTo(a, b); }); ctx.stroke(); };
+  ctx.strokeStyle = '#2b2d42'; ctx.lineWidth = size * 0.07; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const sh = [0, -0.42 + up], hip = [0, 0.08 + (sq ? 0.14 : 0)];
+  line([sh, hip]);
+  const kx = sq ? 0.28 : id === 'jump' ? 0.16 : 0.12, ky = sq ? 0.3 : id === 'jump' ? 0.24 : 0.3, fy = id === 'jump' ? 0.38 : 0.5;
+  line([hip, [-kx, ky], [-0.14, fy]]); line([hip, [kx, ky], [0.14, fy]]);
+  const open = id === 'clap' ? (Math.sin(t * 8) + 1) / 2 * 0.2 : 0;
+  for (const i of [0, 1]) {
+    const hx = p.h[i][0] + (i ? open : -open);
+    line([sh, [p.e[i][0], p.e[i][1] + up], [hx, p.h[i][1] + up]]);
+  }
+  const [hx, hy] = S(0, -0.6 + up);
+  ctx.fillStyle = '#ffd8b5'; circ(ctx, hx, hy, size * 0.13); ctx.lineWidth = size * 0.04; ctx.beginPath(); ctx.arc(hx, hy, size * 0.13, 0, TAU); ctx.stroke();
+}
+/* --- 冻住舞会 --- */
+const FREEZE_TH = 0.045;
+function nextDance(t) { G.round++; G.mode = 'dance'; G.until = t + 5 + Math.random() * 4; G.result = null; startMusic(); speak('跳舞吧！'); logEv('dance'); }
+/* --- 找颜色 --- */
+const BCOLORS = [{ n: '红色', c: '#ff4d4d' }, { n: '黄色', c: '#fcc419' }, { n: '蓝色', c: '#339af0' }, { n: '绿色', c: '#40c057' }];
+function newColor(t) {
+  let c; do { c = Math.floor(Math.random() * BCOLORS.length); } while (c === G.target);
+  G.target = c; G.ct = t; G.got = 0; speak(`找${BCOLORS[c].n}的气球！`); logEv('color:' + c);
+}
+function spawnBalloon(y) {
+  const r = Math.max(34, Math.min(W, H) * 0.06);
+  const col = Math.random() < 0.4 ? G.target : Math.floor(Math.random() * BCOLORS.length);
+  const bx = W * 0.08 + Math.random() * W * 0.84;
+  G.objs.push({ bx, x: bx, y: y ?? H + r * 1.5, r, col, vy: H * (0.06 + Math.random() * 0.03), ph: Math.random() * 6, wig: 0 });
+}
+function drawBalloon(o, t) {
+  const c = BCOLORS[o.col].c, x = o.x + Math.sin(t * 30) * o.r * 0.12 * o.wig, y = o.y;
+  ctx.strokeStyle = 'rgba(80,80,80,0.6)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x, y + o.r * 1.12); ctx.quadraticCurveTo(x + o.r * 0.3 * Math.sin(t * 3 + o.ph), y + o.r * 1.8, x, y + o.r * 2.6); ctx.stroke();
+  ctx.fillStyle = c; ell(ctx, x, y, o.r * 0.88, o.r * 1.05);
+  ctx.beginPath(); ctx.moveTo(x - o.r * 0.13, y + o.r * 1.15); ctx.lineTo(x + o.r * 0.13, y + o.r * 1.15); ctx.lineTo(x, y + o.r * 0.98); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ell(ctx, x - o.r * 0.3, y - o.r * 0.4, o.r * 0.17, o.r * 0.3, -0.5);
+}
+// 演示小朋友：在目标附近找一个最近的
+function nearest(list, kx) { return list.slice().sort((a, b) => Math.abs(a.x - kx) - Math.abs(b.x - kx))[0]; }
+
+const IMPL = {
+  catch: {
+    start(t) { G.next = t; },
+    update(dt, t, live, hands, all) {
+      const el = t - G.tp;
+      if (t >= G.next) {
+        G.next = t + Math.max(0.6, 1.3 - el * 0.012);
+        const r = Math.max(30, Math.min(W, H) * 0.055);
+        G.objs.push({ x: W * 0.12 + Math.random() * W * 0.76, y: -r, r, vy: H * (0.12 + el * 0.0015 + Math.random() * 0.04), e: pick(FRUITS), rot: Math.random() * TAU, vr: (Math.random() - 0.5) * 2 });
+      }
+      for (const o of G.objs) {
+        o.y += o.vy * dt; o.rot += o.vr * dt;
+        if (hitAny(o, all)) {
+          o.dead = true; scoreUp(); burst(o.x, o.y, ['✨', '⭐', '💫'], 8, o.r * 1.6); sfx.pop(); tone(1200, 0.12, { vol: 0.08, delay: 0.05 });
+          if (G.score % 5 === 0) { say(`${G.score} 个！`, { x: o.x, y: o.y - o.r * 2 }, o.r * 1.1, '#ff5d73'); speak(`${G.score}个！`); }
+        }
+      }
+      G.objs = G.objs.filter(o => !o.dead && o.y < H + o.r * 2);
+    },
+    draw() { for (const o of G.objs) emoji(o.e, o.x, o.y, o.r * 2, o.rot); },
+    done: t => t - G.tp > 60,
+    progress: t => (t - G.tp) / 60,
+    demo(i, kx) { const o = nearest(G.objs.filter(o => o.y > H * 0.3 && o.y < H * 0.8), kx); return o ? { act: 'reach', sx: o.x, sy: o.y } : { act: 'idle' }; },
+  },
+
+  whack: {
+    start(t) { G.next = t + 0.5; },
+    update(dt, t, live, hands) {
+      const want = Math.min(2, Math.max(1, live.length));
+      if (G.objs.filter(o => !o.end).length < want && t >= G.next) {
+        const host = live.length ? pick(live).P : null;
+        const s = host ? host.s : Math.min(W, H) * 0.12, c = host ? mid(host.ls, host.rs) : { x: W / 2, y: H * 0.45 };
+        const spots = [[-1.9, -1.4], [1.9, -1.4], [-2.3, 0], [2.3, 0], [-1.6, 1.3], [1.6, 1.3], [0, -2.3]];
+        let sp = pick(spots); if (sp === G.lastSpot) sp = pick(spots); G.lastSpot = sp;
+        const r = Math.max(36, s * 0.55);
+        G.objs.push({ x: Math.max(r * 1.3, Math.min(W - r * 1.3, c.x + sp[0] * s)), y: Math.max(r * 1.8, Math.min(H - r * 1.3, c.y + sp[1] * s)), r, e: pick(['🐹', '🐰', '🐸', '🐥', '🐱', '🐶', '🐼', '🦊', '🐨']), born: t });
+        G.next = t + 0.4;
+      }
+      for (const o of G.objs) {
+        if (o.end) continue;
+        if (t - o.born > 0.25 && hitAny(o, hands)) {
+          o.end = t; o.got = true; scoreUp(); burst(o.x, o.y, ['💥', '⭐', '✨', '💖'], 10, o.r * 1.5); sfx.boing();
+          say(pick(['啵！', '拍到啦！', '好棒！']), { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.8, '#ff5d73'); G.next = t + 0.5;
+        } else if (t - o.born > 3.2) o.end = t;    // 没拍到就悄悄躲回去，不扣分
+      }
+      G.objs = G.objs.filter(o => !o.end || t - o.end < 0.3);
+    },
+    draw(t) {
+      for (const o of G.objs) {
+        const k = o.end ? Math.max(0, 1 - (t - o.end) / 0.3) : Math.min(1, (t - o.born) / 0.25);
+        ctx.fillStyle = 'rgba(90,60,35,0.6)'; ell(ctx, o.x, o.y + o.r * 0.75, o.r * 1.15, o.r * 0.35);
+        ctx.save(); ctx.beginPath(); ctx.rect(o.x - o.r * 2, o.y - o.r * 3, o.r * 4, o.r * 3.75); ctx.clip();
+        emoji(o.e, o.x, o.y + o.r * 1.7 * (1 - k), o.r * 2); ctx.restore();
+        ctx.fillStyle = 'rgba(90,60,35,0.85)'; ctx.beginPath(); ctx.ellipse(o.x, o.y + o.r * 0.75, o.r * 1.15, o.r * 0.35, 0, 0, Math.PI); ctx.fill();
+      }
+    },
+    done: t => t - G.tp > 60,
+    progress: t => (t - G.tp) / 60,
+    demo(i, kx) { const o = nearest(G.objs.filter(o => !o.end), kx); return o ? { act: 'reach', sx: o.x, sy: o.y } : { act: 'idle' }; },
+  },
+
+  simon: {
+    start(t) { G.round = 0; nextSimon(t); },
+    update(dt, t, live) {
+      if (G.wait) { if (t > G.wait) { G.wait = 0; if (G.round >= 10) G.finished = true; else nextSimon(t); } return; }
+      for (const { tr, P } of live) {
+        if (simonOK(tr, t)) {
+          scoreUp(); G.result = 'ok'; tr.excite = 1; burst(P.nose.x, P.nose.y - P.s, ['⭐', '🌟', '✨', '🎉'], 16, P.s); sfx.magic();
+          speak(pick(['真棒！', '做对啦！', '太厉害了！'])); G.wait = t + 1.8; return;
+        }
+      }
+      if (t - G.rt > 8) { G.result = 'miss'; speak('没关系，换一个！'); sfx.down(); G.wait = t + 1.5; }
+    },
+    draw(t) {
+      if (!G.cur) return;
+      const w = Math.min(W * 0.6, 640), h = Math.min(H * 0.26, 220), cx = W / 2, cy = 18 + h / 2;
+      card(cx, cy, w, h);
+      drawStick(cx - w * 0.28, cy + h * 0.02, h * 0.72, G.cur.id, t);
+      label('跟我做', cx + w * 0.14, cy - h * 0.3, h * 0.13, '#868e96');
+      label(G.cur.name, cx + w * 0.14, cy, h * 0.24, '#ff5d73');
+      label(`第 ${G.round} / 10 个`, cx + w * 0.14, cy + h * 0.28, h * 0.11, '#868e96');
+      if (!G.wait) { const p = Math.min(1, (t - G.rt) / 8); ctx.fillStyle = '#e9ecef'; rr(ctx, cx - w * 0.4, cy + h * 0.42, w * 0.8, 8, 4); ctx.fill(); ctx.fillStyle = '#ffa94d'; rr(ctx, cx - w * 0.4, cy + h * 0.42, w * 0.8 * (1 - p), 8, 4); ctx.fill(); }
+      if (G.result === 'ok') emoji('⭐', cx + w * 0.42, cy - h * 0.2, h * 0.4, Math.sin(t * 6) * 0.3);
+    },
+    done: () => G.finished,
+    progress: () => (G.round - 1) / 10,
+    demo(i, kx, t) {
+      if (!G.cur || G.wait) return { act: 'idle' };
+      const d = i ? 2.2 : 1.3; return t - G.rt > d ? { act: SIMON_ACT[G.cur.id], lt: t - G.rt - d } : { act: 'idle' };
+    },
+  },
+
+  freeze: {
+    start(t) { G.round = 0; nextDance(t); },
+    update(dt, t, live) {
+      if (G.mode === 'dance') {
+        for (const { tr, P } of live) if ((tr.motion || 0) > 0.05 && Math.random() < 0.25) {
+          const hnd = Math.random() < 0.5 ? P.lw : P.rw;
+          if (hnd) { const p = mkP(hnd.x, hnd.y, pick(['🎵', '🎶', '✨']), P.s * 0.45, 150, -60); p.life = p.max = 1; particles.push(p); }
+        }
+        if (t > G.until) { G.mode = 'freeze'; G.until = t + 3.5; G.fs = t; stopMusic(); speak('冻住！'); sfx.whoosh(); G.mv = new Map(); logEv('freeze'); }
+      } else if (G.mode === 'freeze') {
+        if (t - G.fs > 0.7) for (const { tr } of live) { const m = G.mv.get(tr) || { n: 0, mv: 0 }; m.n++; if ((tr.motion || 0) > FREEZE_TH) m.mv++; G.mv.set(tr, m); }
+        if (t > G.until) {
+          const res = [...G.mv.values()];
+          if (!res.length) G.result = null;
+          else if (res.every(m => m.mv / Math.max(1, m.n) < 0.25)) { scoreUp(); starRain(); sfx.magic(); speak('冻得真好！'); G.result = 'ok'; }
+          else { speak('哈哈，动啦！再来！'); sfx.boing(); G.result = 'moved'; }
+          G.mode = 'result'; G.until = t + 2;
+        }
+      } else if (G.mode === 'result' && t > G.until) { if (G.round >= 6) G.finished = true; else nextDance(t); }
+    },
+    draw(t) {
+      const sz = Math.max(40, H * 0.08), y = 30 + sz;
+      if (G.mode === 'freeze') {
+        ctx.fillStyle = 'rgba(165,216,255,0.28)'; ctx.fillRect(0, 0, W, H);
+        for (let i = 0; i < 14; i++) emoji('❄️', (i + 0.5) * W / 14, 18 + Math.sin(t * 2 + i) * 6, 30);
+        label('冻住！🧊', W / 2, y, sz, '#1c7ed6');
+      } else if (G.mode === 'dance') label('跳舞吧！🎵', W / 2, y + Math.sin(t * 8) * 8, sz, '#e64980');
+      else if (G.result === 'ok') label('⭐ 冻得真好！', W / 2, y, sz, '#f08c00');
+      else if (G.result === 'moved') label('哈哈，动啦！😆', W / 2, y, sz, '#7048e8');
+      label(`第 ${G.round} / 6 轮`, W / 2, y + sz * 0.9, sz * 0.4, '#495057');
+    },
+    done: () => G.finished,
+    progress: () => (G.round - 1) / 6,
+    demo(i, kx, t) { return G.mode === 'dance' ? { act: 'dance', lt: t + i } : G.mode === 'freeze' ? { act: 'still' } : { act: 'idle' }; },
+  },
+
+  color: {
+    start(t) { G.next = t; newColor(t); for (let i = 0; i < 6; i++) spawnBalloon(H * (0.35 + Math.random() * 0.6)); },
+    update(dt, t, live, hands) {
+      if (t >= G.next) { G.next = t + 0.9; spawnBalloon(); }
+      if (t - G.ct > 14) newColor(t);
+      for (const o of G.objs) {
+        o.y -= o.vy * dt; o.ph += dt * 2; o.x = o.bx + Math.sin(o.ph) * o.r * 0.25; o.wig = Math.max(0, o.wig - dt * 2);
+        if (o.dead || !hitAny(o, hands)) continue;
+        if (o.col === G.target) {
+          o.dead = true; scoreUp(); G.got++; burst(o.x, o.y, ['🎉', '✨', '⭐'], 12, o.r * 1.5); sfx.pop(); tone(1300, 0.15, { vol: 0.1, delay: 0.05 });
+          say('对啦！', { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.8, BCOLORS[o.col].c);
+          if (G.got >= 3) newColor(t); else speak('对啦！');
+        } else if (t - (o.told || 0) > 2) {
+          o.told = t; o.wig = 1; tone(380, 0.18, { vol: 0.1, type: 'triangle' });
+          say(`这是${BCOLORS[o.col].n}哦`, { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.6, BCOLORS[o.col].c); speak(`这是${BCOLORS[o.col].n}哦`);
+        }
+      }
+      G.objs = G.objs.filter(o => !o.dead && o.y > -o.r * 3);
+    },
+    draw(t) {
+      for (const o of G.objs) drawBalloon(o, t);
+      const c = BCOLORS[G.target], w = Math.min(W * 0.5, 520), h = Math.min(H * 0.16, 130), cx = W / 2, cy = 18 + h / 2;
+      card(cx, cy, w, h);
+      drawBalloon({ x: cx - w * 0.36, y: cy - h * 0.12, r: h * 0.3, col: G.target, wig: 0, ph: 0 }, t);
+      label(`找${c.n}的气球！`, cx + w * 0.08, cy, h * 0.34, c.c);
+    },
+    done: t => t - G.tp > 60,
+    progress: t => (t - G.tp) / 60,
+    demo(i, kx) { const o = nearest(G.objs.filter(o => o.col === G.target && o.y > H * 0.25 && o.y < H * 0.85), kx); return o ? { act: 'reach', sx: o.x, sy: o.y } : { act: 'idle' }; },
+  },
+};
+
+function drawGameUI(t, dt) {
+  const info = gameInfo(G.id), impl = IMPL[G.id], fs = Math.max(26, H * 0.045);
+  G.bump = Math.max(0, G.bump - dt * 3);
+  ctx.save(); ctx.translate(24, 20 + fs / 2); ctx.scale(1 + G.bump * 0.35, 1 + G.bump * 0.35);
+  label(`⭐ × ${G.score}`, 0, 0, fs, '#f08c00', 'left'); ctx.restore();
+  if (G.phase === 'play' && impl.progress && (G.id === 'catch' || G.id === 'whack' || G.id === 'color')) {
+    const p = Math.min(1, Math.max(0, impl.progress(t))), bw = W * 0.3, bx = W - bw - 24, by = H - 30;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; rr(ctx, bx, by, bw, 12, 6); ctx.fill();
+    ctx.fillStyle = '#51cf66'; rr(ctx, bx, by, bw * (1 - p), 12, 6); ctx.fill();
+  }
+  if (G.phase === 'intro') {
+    const el = t - G.t0, w = Math.min(W * 0.7, 760), h = Math.min(H * 0.55, 400), cx = W / 2, cy = H * 0.45;
+    card(cx, cy, w, h);
+    emoji(info.icon, cx, cy - h * 0.25, h * 0.26, Math.sin(t * 3) * 0.1);
+    label(info.name, cx, cy + h * 0.02, h * 0.15, '#ff5d73');
+    label(info.hint.replace(/^\S+\s/, ''), cx, cy + h * 0.2, Math.min(h * 0.075, w / 18), '#495057');
+    if (el > 1.5) { const n = Math.ceil(4.5 - el); if (n > 0) label(String(n), cx, cy + h * 0.38, h * 0.12, '#1c7ed6'); }
+  } else if (G.phase === 'done') {
+    const w = Math.min(W * 0.6, 640), h = Math.min(H * 0.45, 320), cx = W / 2, cy = H * 0.42;
+    card(cx, cy, w, h);
+    label('太棒了！🎉', cx, cy - h * 0.25, h * 0.17, '#ff5d73');
+    label(`⭐ × ${G.score}`, cx, cy + h * 0.02, h * 0.2, '#f08c00');
+    label('马上再玩一次…', cx, cy + h * 0.3, h * 0.08, '#868e96');
+  }
+}
+
 /* ---------------- main loop ---------------- */
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
@@ -826,9 +1234,10 @@ function loop() {
   if (camBg) drawVideoCover(ctx); else drawScene(t);
 
   const live = tracks.filter(tr => now - tr.last < 400).map(tr => ({ tr, P: pix(tr) })).filter(o => o.P).sort((a, b) => a.P.s - b.P.s);
-  const touchers = [];
-  for (const { P } of live) { if (P.lw) touchers.push({ ...P.lw, r: P.s * 0.3 }); if (P.rw) touchers.push({ ...P.rw, r: P.s * 0.3 }); touchers.push({ ...P.nose, r: P.s * 0.6 }); }
-  updBubbles(dt, t, touchers);
+  const hands = [], all = [];
+  for (const { P } of live) { if (P.lw) hands.push({ ...P.lw, r: P.s * 0.3 }); if (P.rw) hands.push({ ...P.rw, r: P.s * 0.3 }); }
+  all.push(...hands); for (const { P } of live) all.push({ ...P.nose, r: P.s * 0.6 });
+  if (G) updateGame(dt, t, live, hands, all); else updBubbles(dt, t, all);
 
   for (const { tr, P } of live) {
     if (!tr.nextBlink) tr.nextBlink = now + 2000 + Math.random() * 3000;
@@ -838,15 +1247,17 @@ function loop() {
     drawCharacter(ctx, P, CHARS[tr.char], tr, t);
     if (tr.flying && Math.random() < 0.35) { const h = Math.random() < 0.5 ? P.lw : P.rw; if (h) { const p = mkP(h.x, h.y, (CHARS[tr.char].fx || {}).trail || '☁️', P.s * 0.4, 120, -40); p.life = p.max = 0.9; particles.push(p); } }
   }
+  if (G && G.phase === 'play') IMPL[G.id].draw(t);
   drawParticles(dt); drawTexts(dt);
+  if (G) drawGameUI(t, dt);
 
-  if (!camBg && !demo && showPreview) drawPreview();
+  if (!camBg && !demo && showPreview && !G) drawPreview();
   if (demo) {
     const sz = Math.max(20, H * 0.03), msg = '🎬 演示模式 · 按 D 退出';
     ctx.font = `bold ${sz}px ${TEXT_FONT}`; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(msg, W - 20, 20); ctx.fillStyle = '#7048e8'; ctx.fillText(msg, W - 20, 20);
   }
-  if (bubblesOn) {
+  if (bubblesOn && !G) {
     ctx.font = `bold ${Math.max(26, H * 0.04)}px ${TEXT_FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.strokeText(`🫧 × ${popCount}`, 20, 20); ctx.fillStyle = '#1c7ed6'; ctx.fillText(`🫧 × ${popCount}`, 20, 20);
   }
@@ -861,10 +1272,21 @@ function loop() {
 /* ---------------- UI ---------------- */
 function startGame(isDemo = false) {
   audio(); demo = isDemo; running = true; syncTools(); $('#start').hidden = true; $('#hud').hidden = false; poke();
-  tracks = []; popCount = 0;
+  tracks = []; popCount = 0; setGame(gameId);
   if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
 }
-function goHome() { running = false; $('#start').hidden = false; $('#hud').hidden = true; if (document.fullscreenElement) document.exitFullscreen?.(); }
+function buildGamePickers() {
+  const mk = (box, cls, fn) => GAMES.forEach(g => {
+    const b = document.createElement('button'); b.dataset.game = g.id;
+    b.innerHTML = cls ? `<b>${g.icon}</b>${g.name}` : `${g.icon} ${g.name}`;
+    b.onclick = () => { fn(g.id); tone(660, 0.12, { vol: 0.1 }); }; box.appendChild(b);
+  });
+  mk($('#gamesPick'), true, id => { gameId = id; markGames(); });
+  mk($('#gbar'), false, id => setGame(id));
+  markGames();
+}
+function markGames() { document.querySelectorAll('[data-game]').forEach(b => b.classList.toggle('on', b.dataset.game === gameId)); }
+function goHome() { stopMusic(); G = null; running = false; $('#start').hidden = false; $('#hud').hidden = true; if (document.fullscreenElement) document.exitFullscreen?.(); }
 $('#btnGo').onclick = () => startGame(false);
 $('#btnDemo').onclick = () => startGame(true);
 $('#ver').textContent = `${VERSION} · ${VERSION_DATE}`;
@@ -905,13 +1327,15 @@ addEventListener('keydown', e => {
   else if (k === ' ') { e.preventDefault(); setAll((defaultChar + 1) % CHARS.length); }
   else if (k === 'v') act('face');
   else if (k === 'd') act('demo');
+  else if (k === 'n') { const i = GAMES.findIndex(g => g.id === gameId); setGame(GAMES[(i + 1) % GAMES.length].id); }
   else if (k === 'b') act('bg'); else if (k === 'g') act('bubbles'); else if (k === 'm') act('sound');
   else if (k === 'c') act('cam'); else if (k === 'f') act('full'); else if (k === 's') act('home');
   else if (k === 'p') showPreview = !showPreview;
 });
 addEventListener('resize', resize);
 
-resize(); buildPickers(); syncTools(); refresh(); requestAnimationFrame(loop);
+window.__test = { setGame, get G() { return G; }, get tracks() { return tracks; } };
+resize(); buildPickers(); buildGamePickers(); syncTools(); refresh(); requestAnimationFrame(loop);
 </script>
 </body>
 </html>
