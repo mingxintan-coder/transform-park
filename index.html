@@ -1,6 +1,8 @@
 <!doctype html>
 <!--
   变身乐园 版本记录
+  v1.4.0 (2026-10-11) 更流畅（lite 模型、自适应识别频率、表情贴图缓存、降分辨率）；去掉大部分文字，改用图标和语音；
+                      摄像头可手动选择并记住，自动识别后插上的外接摄像头，跳过红外摄像头，被占用时给出提示
   v1.3.0 (2026-10-11) 新增 5 个游戏：接水果、拍拍小动物、跟我做、冻住舞会、找颜色；演示小朋友会玩每个游戏
   v1.2.0 (2026-10-11) 新增演示模式（不用摄像头）、版本号；蹲下后站起不再误判为跳
   v1.1.0 (2026-10-11) 新增企鹅魔法师、真脸模式
@@ -54,10 +56,17 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
 .games button b{font-size:40px;line-height:1.1}
 .games button.on{border-color:#4dabf7;background:#e7f5ff}
 #gbar{position:absolute;bottom:96px;left:50%;transform:translateX(-50%);display:flex;gap:6px;background:#ffffffe6;border-radius:20px;padding:6px 8px;pointer-events:auto;box-shadow:0 6px 20px #0003;max-width:calc(100vw - 24px);overflow-x:auto}
-#gbar button{font-size:16px;padding:8px 12px;border-radius:12px;background:#f4f6fb;color:var(--ink);white-space:nowrap;border:3px solid transparent;font-family:inherit;cursor:pointer}
+#gbar button{font-size:26px;padding:4px 10px;border-radius:12px;background:#f4f6fb;color:var(--ink);white-space:nowrap;border:3px solid transparent;font-family:inherit;cursor:pointer}
 #gbar button.on{border-color:#4dabf7;background:#e7f5ff}
 .demo{margin:12px 0 0;font-size:18px;padding:10px 26px;border-radius:16px;background:#f4f6fb;color:var(--ink);box-shadow:0 4px 0 #d7dce6}
 .ver{color:#9aa1ad;font-size:13px;margin:8px 0 0}
+.camRow{display:flex;gap:6px;align-items:center}
+.re{font-size:20px;padding:6px 10px;border-radius:10px;background:#f4f6fb}
+.chars,.games{margin-top:14px}
+.tools button{font-size:22px;padding:8px 10px}
+details.tips{margin-top:14px;text-align:left}
+details.tips summary{cursor:pointer;text-align:center;color:#9aa1ad}
+details.tips p{margin:8px 0 0}
 #barVer{color:#9aa1ad;font-size:12px;white-space:nowrap;padding:0 4px}
 </style>
 </head>
@@ -66,19 +75,19 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
 <video id="video" playsinline muted></video>
 
 <div id="hud" hidden>
-  <div id="hints">🙌 双手举高 2 秒＝变身　🦘 跳一跳　👏 拍拍手　👋 挥挥手　✈️ 张开双臂　🍄 蹲下　🫧 碰泡泡</div>
+  <div id="hints" hidden></div>
   <div id="gbar"></div>
   <div id="bar">
     <div id="barChars"></div>
     <div class="tools">
-      <button data-act="bg">🏞️ 背景</button>
-      <button data-act="face">🙂 真脸</button>
-      <button data-act="bubbles">🫧 泡泡</button>
-      <button data-act="sound">🔊 声音</button>
-      <button data-act="cam">📷 换摄像头</button>
-      <button data-act="full">⛶ 全屏</button>
-      <button data-act="demo">🎬 演示</button>
-      <button data-act="home">⚙️ 设置</button>
+      <button data-act="bg" title="背景">🏞️</button>
+      <button data-act="face" title="真脸">🙂</button>
+      <button data-act="bubbles" title="泡泡">🫧</button>
+      <button data-act="sound" title="声音">🔊</button>
+      <button data-act="cam" title="换摄像头">📷</button>
+      <button data-act="full" title="全屏">⛶</button>
+      <button data-act="demo" title="演示">🎬</button>
+      <button data-act="home" title="设置">⚙️</button>
     </div>
     <span id="barVer"></span>
   </div>
@@ -86,32 +95,33 @@ select{font-size:16px;padding:8px;border-radius:10px;max-width:280px}
 
 <div id="start">
   <div class="card">
-    <h1>动起来！变身乐园</h1>
-    <p class="sub">站在摄像头前，你就会变成可爱的小伙伴 ✨</p>
+    <h1>变身乐园</h1>
     <div class="row">
       <div class="camBox"><span>📷</span><video id="pv" playsinline muted></video></div>
       <div class="col">
-        <button id="btnCam" class="big">① 打开摄像头</button>
-        <select id="camSel" hidden></select>
-        <p id="status">⏳ 正在加载动作识别…</p>
+        <button id="btnCam" class="big">📷 打开摄像头</button>
+        <div id="camRow" class="camRow" hidden><select id="camSel"></select><button id="btnCamRe" class="re" title="重新找摄像头">🔄</button></div>
+        <p id="status">⏳ 加载中…</p>
       </div>
     </div>
-    <h2>② 选一个角色</h2>
     <div class="chars" id="chars"></div>
-    <h2>③ 选一个游戏</h2>
     <div class="games" id="gamesPick"></div>
-    <button id="btnGo" class="go" disabled>④ 开始玩！</button><br>
-    <button id="btnDemo" class="demo">🎬 演示模式（不用摄像头，先看看效果）</button>
-    <p class="tips">家长遥控键：数字 1–7 换角色 · 空格 下一个角色 · N 下一个游戏 · V 真脸/卡通脸 · D 演示模式 · B 背景 · G 泡泡 · M 声音 · C 换摄像头 · P 小窗 · F 全屏 · S 回到设置<br>
-    建议：孩子站在电视前 2–3 米，让摄像头能拍到全身；光线亮一点识别更准。</p>
+    <button id="btnGo" class="go" disabled>▶ 开始</button>
+    <button id="btnDemo" class="demo" title="不用摄像头，先看看效果">🎬 演示</button>
+    <details class="tips"><summary>家长说明</summary>
+      <p>外接摄像头：在上面的下拉框里选它，下次会自动记住。看不到它的话，插好后点 🔄。<br>
+      孩子站在电视前 2–3 米，能拍到全身；光线亮一点更准。<br>
+      键盘：1–7 角色 · 空格 下一个角色 · N 下一个游戏 · V 真脸 · D 演示 · B 背景 · G 泡泡 · M 声音 · C 摄像头 · F 全屏 · S 设置</p>
+    </details>
     <p class="ver" id="ver"></p>
   </div>
 </div>
 
 <script type="module">
-const VERSION = 'v1.3.0', VERSION_DATE = '2026-10-11';
+const VERSION = 'v1.4.0', VERSION_DATE = '2026-10-11';
 const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
-const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+// lite 模型：比 full 快好几倍，普通笔记本也流畅
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 
 const CHARS = [
   {id:'penguin', name:'企鹅魔法师', body:'#1f2a44', belly:'#ffffff', limb:'#1f2a44', hand:'#1f2a44', dark:'#0f1626', feet:'#ff9f1c', say:'冰雪魔法，变！', flare:1.15, wand:'#a5e8ff',
@@ -134,7 +144,7 @@ let stream = null, cams = [], camIdx = 0;
 let running = false, bgMode = 'cartoon', bubblesOn = true, soundOn = true, showPreview = true, faceMode = false, demo = false;
 let defaultChar = 0;
 let tracks = [], particles = [], texts = [], bubbles = [], popCount = 0, lastBubble = 0;
-let lastVideoTime = -1, lastT = performance.now();
+let lastVideoTime = -1, lastT = performance.now(), lastDetect = 0, detectGap = 30, detectMs = 20;
 
 /* ---------------- model ---------------- */
 (async () => {
@@ -143,7 +153,7 @@ let lastVideoTime = -1, lastT = performance.now();
     const vision = await FilesetResolver.forVisionTasks(MP + '/wasm');
     const make = delegate => PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL, delegate },
-      runningMode: 'VIDEO', numPoses: 3,
+      runningMode: 'VIDEO', numPoses: 2,
       minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5
     });
     try { landmarker = await make('GPU'); } catch (e) { landmarker = await make('CPU'); }
@@ -152,48 +162,81 @@ let lastVideoTime = -1, lastT = performance.now();
 })();
 
 /* ---------------- camera ---------------- */
+const LS = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const IR_CAM = /\bir\b|infrared|红外/i;                                            // Windows 刷脸用的红外摄像头，画面是灰的
+const BUILTIN_CAM = /integrated|built-?in|facetime|内置|集成|front|前置/i;
+const EXTERNAL_CAM = /usb|webcam|logi|c9\d\d|c270|c310|brio|kiyo|obsbot|anker|razer|external|外接/i;
+const camName = d => (d && d.label) || '摄像头';
+async function listCams() { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); fillCamSelect(); }
+function fillCamSelect() {
+  const sel = $('#camSel');
+  sel.innerHTML = cams.map((d, i) => `<option value="${i}">📷 ${d.label || '摄像头 ' + (i + 1)}</option>`).join('');
+  sel.value = camIdx; sel.hidden = !cams.length;
+}
+// 选摄像头：上次手动选的 > 名字像外接的 > 不像内置的 > 列表里最后一个（外接的一般排在后面）
+function bestCam() {
+  const saved = cams.find(d => d.deviceId && d.deviceId === LS.get('camId'));
+  if (saved) return saved;
+  const list = cams.filter(d => !IR_CAM.test(d.label));
+  if (list.length < 2) return list[0] || cams[0];
+  return list.find(d => EXTERNAL_CAM.test(d.label) && !BUILTIN_CAM.test(d.label))
+      || list.filter(d => !BUILTIN_CAM.test(d.label)).pop() || list[list.length - 1];
+}
 async function openCamera(deviceId) {
   if (stream) stream.getTracks().forEach(t => t.stop());
-  const v = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  stream = null;
+  const v = { width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 30 } };   // 不用太高清，识别更快
   if (deviceId) v.deviceId = { exact: deviceId };
   stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
   video.srcObject = stream; pv.srcObject = stream;
   await video.play().catch(() => {}); pv.play().catch(() => {});
-  cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-  const cur = stream.getVideoTracks()[0].getSettings().deviceId;
-  camIdx = Math.max(0, cams.findIndex(d => d.deviceId === cur));
-  const sel = $('#camSel');
-  sel.innerHTML = cams.map((d, i) => `<option value="${i}">${d.label || '摄像头 ' + (i + 1)}</option>`).join('');
-  sel.value = camIdx; sel.hidden = cams.length < 2;
-  lastVideoTime = -1;
+  await listCams();
+  const track = stream.getVideoTracks()[0], cur = track.getSettings().deviceId;
+  camIdx = Math.max(0, cams.findIndex(d => d.deviceId === cur)); fillCamSelect();
+  track.onended = () => { if (running) toast('📷 ❌'); stream = null; refresh(); initCamera(); };   // 摄像头被拔掉
+  lastVideoTime = -1; camErr = ''; refresh();
+}
+function camMsg(e) {
+  return e.name === 'NotAllowedError' ? '没有权限：点地址栏左边的 🔒，允许摄像头'
+       : e.name === 'NotFoundError' ? '没找到摄像头：插好后点 🔄'
+       : e.name === 'NotReadableError' ? '摄像头被别的程序占用（微信视频、Zoom、相机）：关掉后点 🔄'
+       : '打不开：' + e.message;
 }
 async function initCamera() {
-  camErr = '';
   try {
-    await openCamera();
-    // 优先使用外接摄像头
-    const ext = cams.find(d => d.label && !/integrated|built-?in|facetime|内置|集成/i.test(d.label));
-    if (cams.length > 1 && ext && ext.deviceId !== cams[camIdx].deviceId) await openCamera(ext.deviceId);
+    await openCamera();                               // 先拿到权限，才能看到每个摄像头的名字
+    const best = bestCam();
+    if (best && best.deviceId && best.deviceId !== cams[camIdx]?.deviceId) await openCamera(best.deviceId);
   } catch (e) {
-    console.error(e);
-    camErr = e.name === 'NotAllowedError' ? '没有摄像头权限：请点地址栏左边的图标，允许使用摄像头'
-           : e.name === 'NotFoundError' ? '没找到摄像头：请插好外接摄像头后再试'
-           : '摄像头打不开：' + e.message;
+    console.error(e); camErr = camMsg(e);
+    // 默认摄像头打不开（比如被占用），挨个试其他的
+    try { await listCams(); } catch (_) {}
+    for (const d of cams) { if (!d.deviceId || IR_CAM.test(d.label)) continue; try { await openCamera(d.deviceId); break; } catch (_) {} }
   }
   refresh();
 }
-async function nextCamera() {
-  if (cams.length < 2) return;
-  try { await openCamera(cams[(camIdx + 1) % cams.length].deviceId); toast('📷 ' + (cams[camIdx].label || '摄像头 ' + (camIdx + 1))); } catch (e) {}
+async function chooseCam(i) {
+  const d = cams[i]; if (!d) return;
+  try { await openCamera(d.deviceId); LS.set('camId', d.deviceId); if (running) toast('📷 ' + camName(d)); }
+  catch (e) { camErr = camMsg(e); refresh(); }
 }
+function nextCamera() { if (cams.length > 1) chooseCam((camIdx + 1) % cams.length); }
+// 页面打开后才插上的摄像头：自动切过去
+navigator.mediaDevices?.addEventListener?.('devicechange', async () => {
+  const before = new Set(cams.map(d => d.deviceId));
+  try { await listCams(); } catch (e) { return; }
+  const added = cams.find(d => d.deviceId && !before.has(d.deviceId) && !IR_CAM.test(d.label));
+  if (added && (stream || camErr)) { const i = cams.indexOf(added); await chooseCam(i); }
+});
 $('#btnCam').onclick = () => { audio(); initCamera(); };
-$('#camSel').onchange = e => openCamera(cams[+e.target.value].deviceId).catch(() => {});
+$('#btnCamRe').onclick = () => { audio(); initCamera(); };
+$('#camSel').onchange = e => chooseCam(+e.target.value);
 
 function refresh() {
-  const m = landmarker ? '✅ 动作识别已就绪' : modelErr ? '⚠️ 识别模型加载失败，请检查网络后刷新页面' : '⏳ 正在加载动作识别…';
-  const c = stream ? '✅ 摄像头已打开' : camErr ? '⚠️ ' + camErr : '';
+  const m = landmarker ? '' : modelErr ? '⚠️ 加载失败，检查网络后刷新' : '⏳ 加载中…';
+  const c = camErr ? '⚠️ ' + camErr : '';
   $('#status').innerHTML = [m, c].filter(Boolean).join('<br>');
-  $('#btnCam').textContent = stream ? '🔄 重新打开摄像头' : '① 打开摄像头';
+  $('#btnCam').hidden = !!stream; $('#camRow').hidden = !stream && !cams.length;
   $('#btnGo').disabled = !(landmarker && stream);
 }
 
@@ -786,22 +829,20 @@ function fire(tr, type) {
   const hands = (P.lw && P.rw) ? mid(P.lw, P.rw) : (P.lw || P.rw || head);
   const fs = Math.max(34, s * 0.55), fx = CHARS[tr.char].fx || {};
   switch (type) {
-    case 'cheer':
-      burst(head.x, head.y, fx.cheer || ['⭐', '🌟', '✨'], 12, s);
-      if (fx.cheer) { snowfall(); say('下雪啦！', head, fs, '#1c7ed6'); } else say('哇！', head, fs, '#ff9f1c');
-      sfx.chime(); break;
-    case 'jump': burst(P.feet.x, P.feet.y, fx.jump || ['⭐', '✨', '💫'], 12, s); say(`跳！${tr.jumps}`, head, fs, '#ff5d73'); sfx.boing(); speak(String(tr.jumps)); break;
-    case 'clap': burst(hands.x, hands.y, fx.clap || ['✨', '🎉', '💥'], 12, s); say('啪啪！', head, fs, '#7048e8'); sfx.clap(); break;
-    case 'wave': burst((P.lw && P.lw.y < P.ls.y ? P.lw : P.rw || head).x, (P.lw && P.lw.y < P.ls.y ? P.lw : P.rw || head).y, ['💖', '💕', '👋'], 10, s); say('你好呀！', head, fs, '#e64980'); sfx.hello(); speak('你好呀！'); break;
-    case 'squat': burst(P.feet.x, P.feet.y, ['🍄', '🌼', '🌷'], 10, s); say('蹲下啦～', head, fs, '#2b8a3e'); sfx.down(); break;
-    case 'fly': say('飞呀～', head, fs, '#1c7ed6'); sfx.whoosh(); break;
+    // 只用图案和声音，不弹文字（4 岁还不认字）
+    case 'cheer': burst(head.x, head.y, fx.cheer || ['⭐', '🌟', '✨'], 10, s); if (fx.cheer) snowfall(); sfx.chime(); break;
+    case 'jump': burst(P.feet.x, P.feet.y, fx.jump || ['⭐', '✨', '💫'], 10, s); say(String(tr.jumps), head, fs * 1.3, '#ff5d73'); sfx.boing(); speak(String(tr.jumps)); break;
+    case 'clap': burst(hands.x, hands.y, fx.clap || ['✨', '🎉', '💥'], 10, s); sfx.clap(); break;
+    case 'wave': { const wv = (P.lw && P.lw.y < P.ls.y ? P.lw : P.rw) || head; burst(wv.x, wv.y, ['💖', '💕', '👋'], 8, s); sfx.hello(); speak('你好呀！'); break; }
+    case 'squat': burst(P.feet.x, P.feet.y, ['🍄', '🌼', '🌷'], 8, s); sfx.down(); break;
+    case 'fly': sfx.whoosh(); break;
   }
 }
 function transform(tr, idx, talk) {
   tr.char = idx; tr.morph = 1; tr.excite = 1;
   (window.__events ||= []).push('transform');
   const P = pix(tr), ch = CHARS[idx];
-  if (P) { const c = mid(P.ls, P.rs); burst(c.x, c.y, ['🎉', '✨', '🌈', '⭐'], 22, P.s); say(`变成${ch.name}啦！`, { x: P.nose.x, y: P.nose.y - P.s * 1.4 }, Math.max(40, P.s * 0.65), '#ff5d73'); }
+  if (P) { const c = mid(P.ls, P.rs); burst(c.x, c.y, ['🎉', '✨', '🌈', '⭐'], 16, P.s); }
   sfx.magic(); if (talk) speak(`变成${ch.name}啦！${ch.say}`);
 }
 function setAll(i) {
@@ -814,9 +855,20 @@ function setAll(i) {
 function mkP(x, y, e, size, sp = 380, grav = 700) {
   return { x, y, e, size, vx: (Math.random() - 0.5) * sp, vy: -Math.random() * sp - sp * 0.2, g: grav, life: 1.2, max: 1.2, rot: Math.random() * TAU, vr: (Math.random() - 0.5) * 6 };
 }
-function burst(x, y, emojis, n, s) { for (let i = 0; i < n; i++) particles.push(mkP(x, y, emojis[i % emojis.length], Math.max(22, s * (0.3 + Math.random() * 0.3)))); if (particles.length > 400) particles.splice(0, particles.length - 400); }
+function burst(x, y, emojis, n, s) { for (let i = 0; i < n; i++) particles.push(mkP(x, y, emojis[i % emojis.length], Math.max(22, s * (0.3 + Math.random() * 0.3)))); if (particles.length > 160) particles.splice(0, particles.length - 160); }
+// 表情符号先画成小图片缓存起来，之后直接贴图：比每帧重新排版文字快很多
+const SPR = new Map();
+function sprite(e) {
+  let c = SPR.get(e);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = 96;
+    const g = c.getContext('2d'); g.font = `76px ${EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(e, 48, 54);
+    SPR.set(e, c);
+  }
+  return c;
+}
 function snowfall() {
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 24; i++) {
     const p = mkP(Math.random() * W, -Math.random() * H * 0.4, Math.random() < 0.8 ? '❄️' : '✨', 18 + Math.random() * 26, 60, 60);
     p.vy = 60 + Math.random() * 80; p.life = p.max = 4 + Math.random() * 2; particles.push(p);
   }
@@ -829,12 +881,14 @@ function toast(text) { texts.push({ text, x: W / 2, y: H * 0.22, size: Math.max(
 const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
 const TEXT_FONT = '"Microsoft YaHei","PingFang SC","Noto Sans CJK SC","Noto Sans SC",sans-serif';
 function drawParticles(dt) {
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const p of particles) {
     p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
-    ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.max * 1.6)); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    ctx.font = `${p.size}px ${EMOJI_FONT}`; ctx.fillText(p.e, 0, 0); ctx.restore();
+    const c = Math.cos(p.rot), s = Math.sin(p.rot);
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / p.max * 1.6));
+    ctx.setTransform(dpr * c, dpr * s, -dpr * s, dpr * c, dpr * p.x, dpr * p.y);
+    ctx.drawImage(sprite(p.e), -p.size / 2, -p.size / 2, p.size, p.size);
   }
+  ctx.globalAlpha = 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   particles = particles.filter(p => p.life > 0);
 }
 function drawTexts(dt) {
@@ -851,9 +905,21 @@ function drawTexts(dt) {
 }
 
 /* ---------------- bubbles ---------------- */
+const BSPR = new Map();
+function bubbleSprite(hue) {
+  const k = Math.round(hue / 30) * 30 % 360; let c = BSPR.get(k);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = 62;
+    const gr = g.createRadialGradient(64 - r * 0.35, 64 - r * 0.35, r * 0.1, 64, 64, r);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.5, `hsla(${k},90%,80%,0.25)`); gr.addColorStop(1, `hsla(${k},90%,70%,0.55)`);
+    g.fillStyle = gr; g.beginPath(); g.arc(64, 64, r, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 3; g.stroke(); BSPR.set(k, c);
+  }
+  return c;
+}
 function updBubbles(dt, t, touchers) {
   if (!bubblesOn) { bubbles.length = 0; return; }
-  if (t - lastBubble > 0.8 && bubbles.length < 14) {
+  if (t - lastBubble > 0.9 && bubbles.length < 10) {
     lastBubble = t; const r = (0.035 + Math.random() * 0.035) * Math.min(W, H);
     bubbles.push({ x: r + Math.random() * (W - 2 * r), y: H + r, r, vy: 45 + Math.random() * 55, ph: Math.random() * 6, hue: Math.random() * 360 });
   }
@@ -861,10 +927,7 @@ function updBubbles(dt, t, touchers) {
     b.y -= b.vy * dt; b.ph += dt * 2; b.cx = b.x + Math.sin(b.ph) * b.r * 0.4;
     for (const h of touchers) if (Math.hypot(h.x - b.cx, h.y - b.y) < b.r + h.r) { b.pop = true; break; }
     if (b.pop) { burst(b.cx, b.y, ['✨', '💦', '⭐'], 6, b.r * 1.4); sfx.pop(); popCount++; continue; }
-    const gr = ctx.createRadialGradient(b.cx - b.r * 0.35, b.y - b.r * 0.35, b.r * 0.1, b.cx, b.y, b.r);
-    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.5, `hsla(${b.hue},90%,80%,0.25)`); gr.addColorStop(1, `hsla(${b.hue},90%,70%,0.55)`);
-    ctx.fillStyle = gr; circ(ctx, b.cx, b.y, b.r);
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.cx, b.y, b.r, 0, TAU); ctx.stroke();
+    ctx.drawImage(bubbleSprite(b.hue), b.cx - b.r, b.y - b.r, b.r * 2, b.r * 2);
   }
   bubbles = bubbles.filter(b => !b.pop && b.y > -b.r * 2);
 }
@@ -911,20 +974,19 @@ const nowS = () => performance.now() / 1000;
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const logEv = e => (window.__events ||= []).push(e);
 function emoji(e, x, y, size, rot = 0) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.font = `${size}px ${EMOJI_FONT}`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e, 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot); ctx.drawImage(sprite(e), -size / 2, -size / 2, size, size); ctx.restore();
 }
 function label(text, x, y, size, color, align = 'center') {
   ctx.font = `bold ${size}px ${TEXT_FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
   ctx.lineWidth = size * 0.2; ctx.strokeStyle = '#fff'; ctx.strokeText(text, x, y); ctx.fillStyle = color; ctx.fillText(text, x, y);
 }
 function card(cx, cy, w, h) {
-  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 24; ctx.fillStyle = 'rgba(255,255,255,0.94)';
-  rr(ctx, cx - w / 2, cy - h / 2, w, h, 28); ctx.fill(); ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.08)'; rr(ctx, cx - w / 2 + 4, cy - h / 2 + 8, w, h, 28); ctx.fill();   // 简单阴影，不用模糊（模糊很耗性能）
+  ctx.fillStyle = 'rgba(255,255,255,0.94)'; rr(ctx, cx - w / 2, cy - h / 2, w, h, 28); ctx.fill();
 }
 function hitAny(o, list) { return list.find(h => Math.hypot(h.x - o.x, h.y - o.y) < o.r + h.r); }
 function starRain() {
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 30; i++) {
     const p = mkP(Math.random() * W, -Math.random() * H * 0.5, pick(['⭐', '🌟', '🎉', '✨']), 24 + Math.random() * 30, 80, 80);
     p.vy = 80 + Math.random() * 120; p.life = p.max = 4 + Math.random() * 2; particles.push(p);
   }
@@ -1042,7 +1104,7 @@ const IMPL = {
         o.y += o.vy * dt; o.rot += o.vr * dt;
         if (hitAny(o, all)) {
           o.dead = true; scoreUp(); burst(o.x, o.y, ['✨', '⭐', '💫'], 8, o.r * 1.6); sfx.pop(); tone(1200, 0.12, { vol: 0.08, delay: 0.05 });
-          if (G.score % 5 === 0) { say(`${G.score} 个！`, { x: o.x, y: o.y - o.r * 2 }, o.r * 1.1, '#ff5d73'); speak(`${G.score}个！`); }
+          if (G.score % 5 === 0) speak(`${G.score}个！`);
         }
       }
       G.objs = G.objs.filter(o => !o.dead && o.y < H + o.r * 2);
@@ -1069,8 +1131,7 @@ const IMPL = {
       for (const o of G.objs) {
         if (o.end) continue;
         if (t - o.born > 0.25 && hitAny(o, hands)) {
-          o.end = t; o.got = true; scoreUp(); burst(o.x, o.y, ['💥', '⭐', '✨', '💖'], 10, o.r * 1.5); sfx.boing();
-          say(pick(['啵！', '拍到啦！', '好棒！']), { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.8, '#ff5d73'); G.next = t + 0.5;
+          o.end = t; o.got = true; scoreUp(); burst(o.x, o.y, ['💥', '⭐', '✨', '💖'], 8, o.r * 1.5); sfx.boing(); G.next = t + 0.5;
         } else if (t - o.born > 3.2) o.end = t;    // 没拍到就悄悄躲回去，不扣分
       }
       G.objs = G.objs.filter(o => !o.end || t - o.end < 0.3);
@@ -1103,14 +1164,12 @@ const IMPL = {
     },
     draw(t) {
       if (!G.cur) return;
-      const w = Math.min(W * 0.6, 640), h = Math.min(H * 0.26, 220), cx = W / 2, cy = 18 + h / 2;
+      // 只有小人示范图，名字交给语音
+      const h = Math.min(H * 0.3, 240), w = h * 1.05, cx = W / 2, cy = 14 + h / 2;
       card(cx, cy, w, h);
-      drawStick(cx - w * 0.28, cy + h * 0.02, h * 0.72, G.cur.id, t);
-      label('跟我做', cx + w * 0.14, cy - h * 0.3, h * 0.13, '#868e96');
-      label(G.cur.name, cx + w * 0.14, cy, h * 0.24, '#ff5d73');
-      label(`第 ${G.round} / 10 个`, cx + w * 0.14, cy + h * 0.28, h * 0.11, '#868e96');
+      drawStick(cx, cy + h * 0.12, h * 0.58, G.cur.id, t);
       if (!G.wait) { const p = Math.min(1, (t - G.rt) / 8); ctx.fillStyle = '#e9ecef'; rr(ctx, cx - w * 0.4, cy + h * 0.42, w * 0.8, 8, 4); ctx.fill(); ctx.fillStyle = '#ffa94d'; rr(ctx, cx - w * 0.4, cy + h * 0.42, w * 0.8 * (1 - p), 8, 4); ctx.fill(); }
-      if (G.result === 'ok') emoji('⭐', cx + w * 0.42, cy - h * 0.2, h * 0.4, Math.sin(t * 6) * 0.3);
+      if (G.result === 'ok') emoji('⭐', cx + w * 0.38, cy - h * 0.3, h * 0.35, Math.sin(t * 6) * 0.3);
     },
     done: () => G.finished,
     progress: () => (G.round - 1) / 10,
@@ -1141,15 +1200,15 @@ const IMPL = {
       } else if (G.mode === 'result' && t > G.until) { if (G.round >= 6) G.finished = true; else nextDance(t); }
     },
     draw(t) {
-      const sz = Math.max(40, H * 0.08), y = 30 + sz;
+      // 只用大图标：💃 跳舞，🧊 冻住，⭐ 冻得好，😆 动了
+      const sz = Math.max(70, H * 0.16), y = 20 + sz / 2;
       if (G.mode === 'freeze') {
         ctx.fillStyle = 'rgba(165,216,255,0.28)'; ctx.fillRect(0, 0, W, H);
-        for (let i = 0; i < 14; i++) emoji('❄️', (i + 0.5) * W / 14, 18 + Math.sin(t * 2 + i) * 6, 30);
-        label('冻住！🧊', W / 2, y, sz, '#1c7ed6');
-      } else if (G.mode === 'dance') label('跳舞吧！🎵', W / 2, y + Math.sin(t * 8) * 8, sz, '#e64980');
-      else if (G.result === 'ok') label('⭐ 冻得真好！', W / 2, y, sz, '#f08c00');
-      else if (G.result === 'moved') label('哈哈，动啦！😆', W / 2, y, sz, '#7048e8');
-      label(`第 ${G.round} / 6 轮`, W / 2, y + sz * 0.9, sz * 0.4, '#495057');
+        for (let i = 0; i < 12; i++) emoji('❄️', (i + 0.5) * W / 12, 22 + Math.sin(t * 2 + i) * 6, 34);
+        emoji('🧊', W / 2, y + 20, sz);
+      } else if (G.mode === 'dance') { emoji('💃', W / 2 - sz * 0.45, y + Math.sin(t * 8) * 10, sz, Math.sin(t * 4) * 0.2); emoji('🎵', W / 2 + sz * 0.5, y - Math.sin(t * 8) * 10, sz * 0.8); }
+      else if (G.result === 'ok') emoji('⭐', W / 2, y, sz, Math.sin(t * 6) * 0.2);
+      else if (G.result === 'moved') emoji('😆', W / 2, y, sz);
     },
     done: () => G.finished,
     progress: () => (G.round - 1) / 6,
@@ -1165,22 +1224,20 @@ const IMPL = {
         o.y -= o.vy * dt; o.ph += dt * 2; o.x = o.bx + Math.sin(o.ph) * o.r * 0.25; o.wig = Math.max(0, o.wig - dt * 2);
         if (o.dead || !hitAny(o, hands)) continue;
         if (o.col === G.target) {
-          o.dead = true; scoreUp(); G.got++; burst(o.x, o.y, ['🎉', '✨', '⭐'], 12, o.r * 1.5); sfx.pop(); tone(1300, 0.15, { vol: 0.1, delay: 0.05 });
-          say('对啦！', { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.8, BCOLORS[o.col].c);
+          o.dead = true; scoreUp(); G.got++; burst(o.x, o.y, ['🎉', '✨', '⭐'], 10, o.r * 1.5); sfx.pop(); tone(1300, 0.15, { vol: 0.1, delay: 0.05 });
           if (G.got >= 3) newColor(t); else speak('对啦！');
         } else if (t - (o.told || 0) > 2) {
-          o.told = t; o.wig = 1; tone(380, 0.18, { vol: 0.1, type: 'triangle' });
-          say(`这是${BCOLORS[o.col].n}哦`, { x: o.x, y: o.y - o.r * 1.6 }, o.r * 0.6, BCOLORS[o.col].c); speak(`这是${BCOLORS[o.col].n}哦`);
+          o.told = t; o.wig = 1; tone(380, 0.18, { vol: 0.1, type: 'triangle' }); speak(`这是${BCOLORS[o.col].n}哦`);
         }
       }
       G.objs = G.objs.filter(o => !o.dead && o.y > -o.r * 3);
     },
     draw(t) {
       for (const o of G.objs) drawBalloon(o, t);
-      const c = BCOLORS[G.target], w = Math.min(W * 0.5, 520), h = Math.min(H * 0.16, 130), cx = W / 2, cy = 18 + h / 2;
-      card(cx, cy, w, h);
-      drawBalloon({ x: cx - w * 0.36, y: cy - h * 0.12, r: h * 0.3, col: G.target, wig: 0, ph: 0 }, t);
-      label(`找${c.n}的气球！`, cx + w * 0.08, cy, h * 0.34, c.c);
+      // 只画一个大大的目标气球，孩子一看就知道找哪个颜色
+      const h = Math.min(H * 0.22, 170), cx = W / 2, cy = 14 + h / 2;
+      card(cx, cy, h * 1.1, h);
+      drawBalloon({ x: cx, y: cy - h * 0.12, r: h * 0.3 * (1 + Math.sin(t * 4) * 0.05), col: G.target, wig: 0, ph: 0 }, t);
     },
     done: t => t - G.tp > 60,
     progress: t => (t - G.tp) / 60,
@@ -1192,7 +1249,7 @@ function drawGameUI(t, dt) {
   const info = gameInfo(G.id), impl = IMPL[G.id], fs = Math.max(26, H * 0.045);
   G.bump = Math.max(0, G.bump - dt * 3);
   ctx.save(); ctx.translate(24, 20 + fs / 2); ctx.scale(1 + G.bump * 0.35, 1 + G.bump * 0.35);
-  label(`⭐ × ${G.score}`, 0, 0, fs, '#f08c00', 'left'); ctx.restore();
+  label(`⭐ ${G.score}`, 0, 0, fs, '#f08c00', 'left'); ctx.restore();
   if (G.phase === 'play' && impl.progress && (G.id === 'catch' || G.id === 'whack' || G.id === 'color')) {
     const p = Math.min(1, Math.max(0, impl.progress(t))), bw = W * 0.3, bx = W - bw - 24, by = H - 30;
     ctx.fillStyle = 'rgba(255,255,255,0.7)'; rr(ctx, bx, by, bw, 12, 6); ctx.fill();
@@ -1201,32 +1258,36 @@ function drawGameUI(t, dt) {
   if (G.phase === 'intro') {
     const el = t - G.t0, w = Math.min(W * 0.7, 760), h = Math.min(H * 0.55, 400), cx = W / 2, cy = H * 0.45;
     card(cx, cy, w, h);
-    emoji(info.icon, cx, cy - h * 0.25, h * 0.26, Math.sin(t * 3) * 0.1);
-    label(info.name, cx, cy + h * 0.02, h * 0.15, '#ff5d73');
-    label(info.hint.replace(/^\S+\s/, ''), cx, cy + h * 0.2, Math.min(h * 0.075, w / 18), '#495057');
-    if (el > 1.5) { const n = Math.ceil(4.5 - el); if (n > 0) label(String(n), cx, cy + h * 0.38, h * 0.12, '#1c7ed6'); }
+    emoji(info.icon, cx, cy - h * 0.12, h * 0.42, Math.sin(t * 3) * 0.1);
+    if (el > 1.5) { const n = Math.ceil(4.5 - el); if (n > 0) label(String(n), cx, cy + h * 0.32, h * 0.2, '#1c7ed6'); }
   } else if (G.phase === 'done') {
-    const w = Math.min(W * 0.6, 640), h = Math.min(H * 0.45, 320), cx = W / 2, cy = H * 0.42;
+    const w = Math.min(W * 0.5, 520), h = Math.min(H * 0.4, 300), cx = W / 2, cy = H * 0.42;
     card(cx, cy, w, h);
-    label('太棒了！🎉', cx, cy - h * 0.25, h * 0.17, '#ff5d73');
-    label(`⭐ × ${G.score}`, cx, cy + h * 0.02, h * 0.2, '#f08c00');
-    label('马上再玩一次…', cx, cy + h * 0.3, h * 0.08, '#868e96');
+    emoji('🎉', cx, cy - h * 0.2, h * 0.36, Math.sin(t * 4) * 0.15);
+    label(`⭐ ${G.score}`, cx, cy + h * 0.25, h * 0.22, '#f08c00');
   }
 }
 
 /* ---------------- main loop ---------------- */
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
+  // 画布最多按 1600 像素宽来画：电视上看不出差别，但快很多
+  W = innerWidth; H = innerHeight; dpr = Math.min(window.devicePixelRatio || 1, 1600 / W, 1);
   canvas.width = W * dpr; canvas.height = H * dpr; buildScene();
 }
 function loop() {
   requestAnimationFrame(loop);
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!running) return;
-  if (demo) updateTracks(demoPoses(now / 1000), now);
-  else if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    try { const res = landmarker.detectForVideo(video, now); updateTracks(res.landmarks || [], now); } catch (e) { console.error(e); }
+  if (demo) { if (now - lastDetect > 33) { lastDetect = now; updateTracks(demoPoses(now / 1000), now); } }
+  else if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime && now - lastDetect > detectGap) {
+    // 识别频率自适应：电脑慢就少识别几次，画面照样流畅
+    lastVideoTime = video.currentTime; lastDetect = now;
+    try {
+      const t0 = performance.now(), res = landmarker.detectForVideo(video, now);
+      detectMs = detectMs * 0.9 + (performance.now() - t0) * 0.1;
+      detectGap = detectMs > 45 ? 95 : detectMs > 25 ? 60 : 30;
+      updateTracks(res.landmarks || [], now);
+    } catch (e) { console.error(e); }
   }
   const t = now / 1000;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1253,20 +1314,15 @@ function loop() {
 
   if (!camBg && !demo && showPreview && !G) drawPreview();
   if (demo) {
-    const sz = Math.max(20, H * 0.03), msg = '🎬 演示模式 · 按 D 退出';
+    const sz = Math.max(20, H * 0.03), msg = '🎬';
     ctx.font = `bold ${sz}px ${TEXT_FONT}`; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(msg, W - 20, 20); ctx.fillStyle = '#7048e8'; ctx.fillText(msg, W - 20, 20);
   }
   if (bubblesOn && !G) {
     ctx.font = `bold ${Math.max(26, H * 0.04)}px ${TEXT_FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.strokeText(`🫧 × ${popCount}`, 20, 20); ctx.fillStyle = '#1c7ed6'; ctx.fillText(`🫧 × ${popCount}`, 20, 20);
+    ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.strokeText(`🫧 ${popCount}`, 20, 20); ctx.fillStyle = '#1c7ed6'; ctx.fillText(`🫧 ${popCount}`, 20, 20);
   }
-  if (!live.length) {
-    const sz = Math.max(36, H * 0.07), y = H * 0.45 + Math.sin(t * 3) * 12;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${sz}px "Microsoft YaHei","PingFang SC",sans-serif`;
-    ctx.lineWidth = sz * 0.2; ctx.strokeStyle = '#fff'; const msg = landmarker ? '站到摄像头前面来吧！👋' : '准备中…';
-    ctx.strokeText(msg, W / 2, y); ctx.fillStyle = '#ff5d73'; ctx.fillText(msg, W / 2, y);
-  }
+  if (!live.length) emoji(landmarker || demo ? '👋' : '⏳', W / 2, H * 0.45 + Math.sin(t * 3) * 12, Math.max(90, H * 0.18), Math.sin(t * 5) * 0.3);
 }
 
 /* ---------------- UI ---------------- */
@@ -1278,7 +1334,7 @@ function startGame(isDemo = false) {
 function buildGamePickers() {
   const mk = (box, cls, fn) => GAMES.forEach(g => {
     const b = document.createElement('button'); b.dataset.game = g.id;
-    b.innerHTML = cls ? `<b>${g.icon}</b>${g.name}` : `${g.icon} ${g.name}`;
+    b.innerHTML = cls ? `<b>${g.icon}</b>${g.name}` : g.icon; b.title = g.name;
     b.onclick = () => { fn(g.id); tone(660, 0.12, { vol: 0.1 }); }; box.appendChild(b);
   });
   mk($('#gamesPick'), true, id => { gameId = id; markGames(); });
@@ -1294,11 +1350,11 @@ $('#barVer').textContent = VERSION;
 
 function syncTools() {
   const q = a => document.querySelector(`.tools [data-act="${a}"]`);
-  q('bg').textContent = bgMode === 'cartoon' ? '🏞️ 卡通背景' : '📹 真实画面';
+  q('bg').textContent = bgMode === 'cartoon' ? '🏞️' : '📹';
   q('bubbles').classList.toggle('off', !bubblesOn);
   q('face').classList.toggle('off', !faceMode);
   q('demo').classList.toggle('off', !demo);
-  q('sound').textContent = soundOn ? '🔊 声音' : '🔇 静音';
+  q('sound').textContent = soundOn ? '🔊' : '🔇';
 }
 function act(a) {
   if (a === 'bg') bgMode = bgMode === 'cartoon' ? 'camera' : 'cartoon';
